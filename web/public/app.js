@@ -61,6 +61,10 @@ const ICON = {
   map: '<svg viewBox="0 0 24 24"><path d="M9 4.5 3.5 6.5v13L9 17.5l6 2 5.5-2v-13L15 6.5l-6-2Z"/><path d="M9 4.5v13M15 6.5v13"/></svg>',
   laptop: '<svg viewBox="0 0 24 24"><rect x="4.5" y="5" width="15" height="10.5" rx="1.8"/><path d="M2.5 19h19"/></svg>',
   close: '<svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg>',
+  plane: '<svg viewBox="0 0 24 24"><path d="M21 15.5v-1.8l-8-5V3.5a1.5 1.5 0 0 0-3 0v5.2l-8 5v1.8l8-2.5v5.2l-2 1.5v1.3l3.5-1 3.5 1v-1.3l-2-1.5V13l8 2.5Z" fill="currentColor" stroke="none"/></svg>',
+  car: '<svg viewBox="0 0 24 24"><path d="M5 12l1.8-4.6A2 2 0 0 1 8.7 6h6.6a2 2 0 0 1 1.9 1.4L19 12"/><rect x="3.5" y="12" width="17" height="5" rx="1.6"/><path d="M6.5 17v1.8M17.5 17v1.8"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor" stroke="none"/></svg>',
+  stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg>',
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -264,6 +268,11 @@ const S = {
   sel: null,
   citiesAll: false,
   pending: null,          // parsed but not yet opened
+  spotByKey: new Map(),
+  tab: 'overview',        // overview | timeline
+  tl: { year: null, month: null },
+  route: [], routeUpto: 0, routeData: null,
+  popAt: 0,               // markers created before this moment wait to pop in
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -273,7 +282,6 @@ const STYLES = {
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
 };
-const FONT = ['Montserrat Medium', 'Open Sans Bold', 'Noto Sans Regular', 'HanWang Hei Light Regular', 'NanumBarunGothic Regular'];
 let map = null, dotScale = 0, spin = { on: true, paused: 0 };
 
 // The map canvas is taller than the viewport (see #map in styles.css); EXTRA is the hidden part below the fold.
@@ -306,6 +314,11 @@ function initMap() {
   ['dragstart', 'rotatestart', 'pitchstart', 'zoomstart'].forEach((ev) => map.on(ev, (e) => { if (e.originalEvent) spin.paused = performance.now() + 2500; }));
   map.on('mousedown', () => (spin.paused = performance.now() + 2500));
   map.on('touchstart', () => (spin.paused = performance.now() + 2500));
+  map.on('render', scheduleMarkers);
+  map.on('sourcedata', (e) => { if (e.sourceId === 'spots') scheduleMarkers(); });
+  map.on('click', (e) => {
+    if (S.view === 'dash' && !e.originalEvent.target.closest?.('.pm')) closeDetail();
+  });
   darkQ.addEventListener('change', () => { map.setStyle(STYLES[darkQ.matches ? 'dark' : 'light'], { diff: false }); renderLegend(); });
 
   let last = performance.now();
@@ -343,9 +356,6 @@ function localizeLabels() {
   }
 }
 
-function radiusExpr(k, mul = 1) {
-  return ['*', k * mul, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 6.5, 3, 10, 8, 17, 16, 25, 30, 34]];
-}
 function valueExpr(m) {
   if (m === 'ping') {
     return ['case', ['has', 'point_count'],
@@ -359,11 +369,13 @@ function colorExpr(m) {
   return ['case', ['<', v, 0], '#8e8e93', ['interpolate', ['linear'], v, ...colorStops(m).flat()]];
 }
 
+const EMPTY = { type: 'FeatureCollection', features: [] };
+
 function addDataLayers() {
   if (!map || map.getSource('spots')) return;
   map.addSource('spots', {
     type: 'geojson', data: spotsGeoJSON(),
-    cluster: true, clusterRadius: 42, clusterMaxZoom: 13,
+    cluster: true, clusterRadius: 58, clusterMaxZoom: 14,
     clusterProperties: {
       n: ['+', ['get', 'n']],
       pn: ['+', ['get', 'pn']],
@@ -372,60 +384,61 @@ function addDataLayers() {
       pingw: ['+', ['*', ['max', ['get', 'ping'], 0], ['get', 'pn']]],
     },
   });
-  map.addSource('sel', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('sel', { type: 'geojson', data: EMPTY });
+  map.addSource('route', { type: 'geojson', data: S.routeData || EMPTY });
   const dark = darkQ.matches;
+  // Timeline route: local movement as a solid glowing line, long hops as dashed great-circle arcs.
+  map.addLayer({
+    id: 'route-glow', type: 'line', source: 'route', filter: ['!=', ['get', 'jump'], true],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': dark ? '#0a84ff' : '#007aff', 'line-opacity': dark ? .45 : .25, 'line-width': 10, 'line-blur': 7 },
+  });
+  map.addLayer({
+    id: 'route', type: 'line', source: 'route', filter: ['!=', ['get', 'jump'], true],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': dark ? '#64d2ff' : '#007aff', 'line-width': 2.6, 'line-opacity': .95 },
+  });
+  map.addLayer({
+    id: 'route-jump', type: 'line', source: 'route', filter: ['==', ['get', 'jump'], true],
+    layout: { 'line-cap': 'round' },
+    paint: { 'line-color': dark ? '#ffffff' : '#1d1d1f', 'line-opacity': .55, 'line-width': 1.8, 'line-dasharray': [0.5, 2.5] },
+  });
   map.addLayer({
     id: 'glow', type: 'circle', source: 'spots',
     paint: {
-      'circle-radius': radiusExpr(dotScale, 2.3), 'circle-color': colorExpr(S.metric), 'circle-blur': 1,
-      'circle-opacity': dark ? .5 : .32, 'circle-color-transition': { duration: 700 }, 'circle-pitch-alignment': 'map',
+      'circle-radius': glowRadius(dotScale), 'circle-color': colorExpr(S.metric), 'circle-blur': 1,
+      'circle-opacity': dark ? .55 : .35, 'circle-color-transition': { duration: 700 }, 'circle-pitch-alignment': 'map',
     },
   });
   map.addLayer({
     id: 'ring', type: 'circle', source: 'sel',
     paint: { 'circle-radius': 20, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 2.5, 'circle-stroke-color': dark ? '#fff' : '#1d1d1f', 'circle-stroke-opacity': 0 },
   });
-  map.addLayer({
-    id: 'dots', type: 'circle', source: 'spots',
-    paint: {
-      'circle-radius': radiusExpr(dotScale), 'circle-color': colorExpr(S.metric),
-      'circle-stroke-width': 1.5, 'circle-stroke-color': dark ? 'rgba(255,255,255,.9)' : '#ffffff',
-      'circle-opacity': .95, 'circle-color-transition': { duration: 700 }, 'circle-pitch-alignment': 'map',
-    },
-  });
-  map.addLayer({
-    id: 'counts', type: 'symbol', source: 'spots', filter: ['>=', ['get', 'n'], 4],
-    layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['get', 'n'], 4, 10.5, 60, 14], 'text-allow-overlap': true },
-    paint: { 'text-color': 'rgba(0,0,0,.78)', 'text-opacity': dotScale > .6 ? 1 : 0, 'text-opacity-transition': { duration: 400 } },
-  });
+  scheduleMarkers();
+}
 
-  map.on('mousemove', 'dots', onHover);
-  map.on('mouseleave', 'dots', () => { map.getCanvas().style.cursor = ''; hideTip(); });
-  map.on('click', 'dots', onDotClick);
-  map.on('click', (e) => {
-    if (S.view !== 'dash') return;
-    const hit = map.queryRenderedFeatures(e.point, { layers: ['dots'] });
-    if (!hit.length) closeDetail();
-  });
+function glowRadius(k) {
+  return ['*', k, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 14, 4, 24, 16, 40]];
 }
 
 function spotsGeoJSON() {
   return {
     type: 'FeatureCollection',
-    features: S.spots.map((s, i) => ({
+    features: S.spots.map((s) => ({
       type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
-      properties: { i, n: s.st.n, dl: s.st.dl ?? 0, ul: s.st.ul ?? 0, ping: s.st.ping ?? -1, pn: s.st.pn },
+      properties: { k: s.key, n: s.st.n, dl: s.st.dl ?? 0, ul: s.st.ul ?? 0, ping: s.st.ping ?? -1, pn: s.st.pn },
     })),
   };
 }
-function pushData() { const src = map && map.getSource('spots'); if (src) src.setData(spotsGeoJSON()); }
+function pushData() {
+  const src = map && map.getSource('spots');
+  if (src) src.setData(spotsGeoJSON());
+  scheduleMarkers();
+}
 
 function setDotScale(k) {
   dotScale = k;
-  if (!map || !map.getLayer('dots')) return;
-  map.setPaintProperty('dots', 'circle-radius', radiusExpr(k));
-  map.setPaintProperty('glow', 'circle-radius', radiusExpr(k, 2.3));
-  map.setPaintProperty('counts', 'text-opacity', k > .6 ? 1 : 0);
+  if (map && map.getLayer('glow')) map.setPaintProperty('glow', 'circle-radius', glowRadius(k));
 }
 function animateDots(to, delay = 0, dur = 1100) {
   const from = dotScale, start = performance.now() + delay;
@@ -439,17 +452,148 @@ function animateDots(to, delay = 0, dur = 1100) {
   requestAnimationFrame(step);
 }
 
+/* ── Photos-style markers ──────────────────────────────────────
+   Every visible cluster or spot is a rounded tile with a white rim, a tail pointing
+   at the location and a count badge — the clustered source decides what merges. */
+const markers = new Map();
+let shownMarkers = new Map(), markerRAF = 0;
+function scheduleMarkers() { if (!markerRAF) markerRAF = requestAnimationFrame(() => { markerRAF = 0; updateMarkers(); }); }
+
+function featureValue(p, m) {
+  if (!p.cluster) return m === 'ping' ? (p.ping >= 0 ? p.ping : null) : p[m];
+  if (m === 'ping') return p.pn > 0 ? p.pingw / p.pn : null;
+  return p[m + 'w'] / p.n;
+}
+
+function updateMarkers() {
+  if (!map || S.view !== 'dash' || !map.getSource('spots')) { clearMarkers(); return; }
+  const next = new Map();
+  for (const f of map.querySourceFeatures('spots')) {
+    const p = f.properties;
+    const id = p.cluster ? `c${p.cluster_id}` : `s${p.k}`;
+    if (next.has(id)) continue;
+    let m = markers.get(id);
+    if (!m) { m = makeMarker(id); markers.set(id, m); }
+    paintMarker(m, p, f.geometry.coordinates);
+    next.set(id, m);
+    if (!shownMarkers.has(id)) { clearTimeout(m.rm); m.el.classList.remove('out'); m.mk.addTo(map); }
+  }
+  for (const [id, m] of shownMarkers) if (!next.has(id)) retireMarker(m);
+  shownMarkers = next;
+}
+function retireMarker(m) {
+  m.el.classList.add('out');
+  clearTimeout(m.rm);
+  m.rm = setTimeout(() => m.mk.remove(), 230);
+}
+function clearMarkers() {
+  for (const m of shownMarkers.values()) retireMarker(m);
+  shownMarkers = new Map();
+}
+
+function makeMarker(id) {
+  const el = document.createElement('button');
+  el.type = 'button'; el.className = 'pm';
+  el.innerHTML = '<span class="pm-in"><span class="pm-card"><b></b><small></small></span><span class="pm-badge"></span></span>';
+  const delay = Math.max(0, S.popAt - performance.now()) + Math.random() * 160;
+  el.style.setProperty('--delay', `${delay | 0}ms`);
+  const m = { id, el, key: '', mk: new maplibregl.Marker({ element: el, anchor: 'bottom' }) };
+  el.addEventListener('click', (e) => { e.stopPropagation(); onMarkerClick(m); });
+  el.addEventListener('mouseenter', () => showMarkerTip(m));
+  el.addEventListener('mouseleave', hideTip);
+  return m;
+}
+
+function paintMarker(m, p, coords) {
+  m.p = p; m.coords = coords;
+  const v = featureValue(p, S.metric);
+  const key = `${S.metric}|${p.n}|${v}|${coords}`;
+  if (key === m.key) return;
+  m.key = key;
+  m.mk.setLngLat(coords);
+  const s = Math.round(Math.max(40, Math.min(68, 40 + 7 * Math.log2(p.n))));
+  m.el.style.setProperty('--s', `${s}px`);
+  m.el.style.setProperty('--c', colorFor(S.metric, v));
+  m.el.style.zIndex = String(p.n);
+  const card = m.el.querySelector('.pm-card');
+  card.firstChild.textContent = fmt(v);
+  card.lastChild.textContent = METRICS[S.metric].unit;
+  const badge = m.el.querySelector('.pm-badge');
+  badge.textContent = p.n > 999 ? '999+' : p.n;
+  badge.hidden = p.n < 2;
+  m.el.setAttribute('aria-label', `${p.n} 次测试，${METRICS[S.metric].name} ${fmt(v)} ${METRICS[S.metric].unit}`);
+}
+
+async function leavesOf(m) {
+  if (!m.p.cluster) { const s = S.spotByKey.get(m.p.k); return s ? [s] : []; }
+  try {
+    const leaves = await map.getSource('spots').getClusterLeaves(m.p.cluster_id, Infinity, 0);
+    return leaves.map((l) => S.spotByKey.get(l.properties.k)).filter(Boolean);
+  } catch { return []; }
+}
+const placeNames = (spots) => {
+  const c = new Map();
+  for (const s of spots) c.set(s.city, (c.get(s.city) || 0) + s.st.n);
+  const names = [...c.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+  return names.slice(0, 3).join(' · ') + (names.length > 3 ? ' 等' : '');
+};
+
+/* hover & click */
+const tip = $('#tip');
+let tipToken = 0;
+async function showMarkerTip(m) {
+  if (S.view !== 'dash' || isCompact()) return;
+  const p = m.p, token = ++tipToken;
+  const render = (title) => {
+    if (token !== tipToken) return;
+    tip.innerHTML = `<b>${esc(title)}</b>
+      <div class="row"><span>测试</span><span>${p.n} 次</span></div>
+      <div class="row"><span>下载</span><span>${fmt(featureValue(p, 'dl'))} Mbps</span></div>
+      <div class="row"><span>上传</span><span>${fmt(featureValue(p, 'ul'))} Mbps</span></div>
+      <div class="row"><span>延迟</span><span>${fmt(featureValue(p, 'ping'))} ms</span></div>`;
+    tip.hidden = false;
+    const pt = map.project(m.coords), r = m.el.getBoundingClientRect();
+    placeTip({ x: r.right - 6, y: pt.y - r.height + 8 });
+  };
+  render(p.cluster ? `${p.point_count} 个地点` : (S.spotByKey.get(p.k)?.city || ''));
+  if (p.cluster) render(placeNames(await leavesOf(m)));
+}
+function placeTip(pt) {
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = pt.x + 8, y = pt.y - h;
+  if (x + w > innerWidth - 12) x = pt.x - w - 60;
+  if (y < 12) y = 12;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hideTip() { tipToken++; tip.hidden = true; }
+
+/* Like tapping a pile in Photos: open everything inside it, and zoom until it splits apart. */
+async function onMarkerClick(m) {
+  if (S.view !== 'dash') return;
+  hideTip(); stopPlay();
+  const spots = await leavesOf(m);
+  if (!spots.length) return;
+  const tests = spots.flatMap((s) => s.tests).sort((a, b) => b.ts - a.ts);
+  const single = spots.length === 1 ? spots[0] : null;
+  openDetail({
+    title: single ? single.city : placeNames(spots),
+    tests, center: m.coords,
+  });
+  if (single) map.easeTo({ center: m.coords, duration: 900, easing: easeOutExpo, padding: camPadding() });
+  else fit(spots, { maxZoom: 15, duration: 1300, easing: easeOutExpo });
+}
+
 /* selection ring pulse */
 let pulseRAF = 0;
 function pulse(lngLat) {
   cancelAnimationFrame(pulseRAF);
   const src = map && map.getSource('sel'); if (!src) return;
-  if (!lngLat) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
+  if (!lngLat) { src.setData(EMPTY); return; }
   src.setData({ type: 'Feature', geometry: { type: 'Point', coordinates: lngLat }, properties: {} });
   const t0 = performance.now();
   const step = (now) => {
     const p = ((now - t0) % 1800) / 1800, e = easeOutExpo(p);
-    map.setPaintProperty('ring', 'circle-radius', 14 + e * 30);
+    map.setPaintProperty('ring', 'circle-radius', 10 + e * 30);
     map.setPaintProperty('ring', 'circle-stroke-opacity', (1 - p) * .8);
     pulseRAF = requestAnimationFrame(step);
   };
@@ -457,8 +601,8 @@ function pulse(lngLat) {
 }
 
 function uiPadding() {
-  if (isCompact()) return { top: 170, bottom: 200, left: 36, right: 36 };
-  return { top: 110, bottom: 90, left: 400, right: S.sel ? 450 : 80 };
+  if (isCompact()) return { top: 190, bottom: 200, left: 40, right: 40 };
+  return { top: 130, bottom: 90, left: 410, right: S.sel ? 460 : 90 };
 }
 function camPadding() { const p = uiPadding(); return { ...p, bottom: p.bottom + EXTRA() }; }
 const mercX = (lon) => (lon + 180) / 360;
@@ -491,73 +635,111 @@ function homeSpots() {
   return S.spots.filter((s) => Math.hypot(s.lat - lat, (s.lon - lon) * Math.cos((lat * Math.PI) / 180)) < 2.3);
 }
 
-/* hover & click */
-const tip = $('#tip');
-let tipToken = 0;
-function onHover(e) {
-  if (S.view !== 'dash' || isCompact()) return;
-  map.getCanvas().style.cursor = 'pointer';
-  const f = e.features[0]; const p = f.properties;
-  const v = (m) => {
-    if (!p.point_count) return m === 'ping' ? (p.ping >= 0 ? p.ping : null) : p[m];
-    if (m === 'ping') return p.pn > 0 ? p.pingw / p.pn : null;
-    return p[m + 'w'] / p.n;
-  };
-  const token = ++tipToken;
-  const render = (title) => {
-    if (token !== tipToken) return;
-    tip.innerHTML = `<b>${esc(title)}</b>
-      <div class="row"><span>测试</span><span>${p.n} 次</span></div>
-      <div class="row"><span>下载</span><span>${fmt(v('dl'))} Mbps</span></div>
-      <div class="row"><span>上传</span><span>${fmt(v('ul'))} Mbps</span></div>
-      <div class="row"><span>延迟</span><span>${fmt(v('ping'))} ms</span></div>`;
-    if (tip.hidden) { tip.hidden = false; }
-    placeTip(e.point);
-  };
-  if (p.point_count) {
-    render(`${p.point_count} 个地点`);
-    map.getSource('spots').getClusterLeaves(p.cluster_id, 500, 0).then((leaves) => {
-      const c = new Map();
-      for (const l of leaves) { const s = S.spots[l.properties.i]; if (s) c.set(s.city, (c.get(s.city) || 0) + s.st.n); }
-      const names = [...c.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0]);
-      render(names.slice(0, 3).join(' · ') + (names.length > 3 ? ' 等' : ''));
-    }).catch(() => {});
-  } else {
-    const s = S.spots[p.i]; render(s ? s.city : '');
+/* ════════════════════════════════════════════════════════════
+   Timeline — stays, moves, route and playback
+   ════════════════════════════════════════════════════════════ */
+const DAY = 864e5;
+function km(a, b) {
+  const R = 6371, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+/* A "stay" is a run of tests in one city with no gap longer than three days. */
+function stays(tests) {
+  const asc = tests.filter((t) => t.ts).sort((a, b) => a.ts - b.ts);
+  const out = []; let cur = null;
+  for (const t of asc) {
+    if (cur && cur.city === t.city && t.ts - cur.to < 3 * DAY) { cur.tests.push(t); cur.to = t.ts; }
+    else { cur = { city: t.city, from: t.ts, to: t.ts, tests: [t] }; out.push(cur); }
   }
-  placeTip(e.point);
+  return out;
 }
-function placeTip(pt) {
-  const w = tip.offsetWidth, h = tip.offsetHeight;
-  let x = pt.x + 16, y = pt.y - h - 12;
-  if (x + w > innerWidth - 12) x = pt.x - w - 16;
-  if (y < 12) y = pt.y + 16;
-  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+/* Ordered route points (one per change of location), each tagged with the stay it belongs to. */
+function routePoints(segs) {
+  const pts = []; let prevLon = null;
+  segs.forEach((seg, si) => {
+    for (const t of seg.tests) {
+      const last = pts[pts.length - 1];
+      if (last && last.key === t.key) { last.seg = si; continue; }
+      let lon = t.lon;
+      if (prevLon != null) { while (lon - prevLon > 180) lon -= 360; while (prevLon - lon > 180) lon += 360; }
+      prevLon = lon;
+      pts.push({ key: t.key, lon, lat: t.lat, seg: si, jump: !!last && km(last, t) > 300 });
+    }
+  });
+  return pts;
 }
-function hideTip() { tipToken++; tip.hidden = true; }
-
-async function onDotClick(e) {
-  if (S.view !== 'dash') return;
-  const f = e.features[0], p = f.properties;
-  hideTip();
-  if (p.point_count) {
-    const src = map.getSource('spots');
-    let z = map.getZoom() + 2;
-    try { z = await src.getClusterExpansionZoom(p.cluster_id); } catch {}
-    map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(z + .4, 15), duration: 1100, easing: easeOutExpo, padding: camPadding() });
-    return;
+function arc(a, b, n = 64) {
+  const r = Math.PI / 180, toV = (p) => [Math.cos(p.lat * r) * Math.cos(p.lon * r), Math.cos(p.lat * r) * Math.sin(p.lon * r), Math.sin(p.lat * r)];
+  const A = toV(a), B = toV(b);
+  const d = Math.acos(Math.max(-1, Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2])));
+  if (d < 1e-6) return [[a.lon, a.lat], [b.lon, b.lat]];
+  const out = []; let prev = a.lon;
+  for (let i = 0; i <= n; i++) {
+    const f = i / n, s1 = Math.sin((1 - f) * d) / Math.sin(d), s2 = Math.sin(f * d) / Math.sin(d);
+    const x = s1 * A[0] + s2 * B[0], y = s1 * A[1] + s2 * B[1], z = s1 * A[2] + s2 * B[2];
+    let lon = Math.atan2(y, x) / r;
+    while (lon - prev > 180) lon -= 360; while (prev - lon > 180) lon += 360;
+    prev = lon;
+    out.push([lon, Math.atan2(z, Math.hypot(x, y)) / r]);
   }
-  const s = S.spots[p.i]; if (!s) return;
-  openDetail({ title: s.city, sub: `${s.lat.toFixed(3)}, ${s.lon.toFixed(3)}`, tests: s.tests, center: [s.lon, s.lat] });
-  map.easeTo({ center: [s.lon, s.lat], duration: 900, easing: easeOutExpo, padding: camPadding() });
+  return out;
 }
+/* Route drawn up to a fractional point index — lets the line grow smoothly. */
+function routeGeo(pts, upto) {
+  const feats = [];
+  if (pts.length < 2 || upto <= 0) return { type: 'FeatureCollection', features: feats };
+  let run = [[pts[0].lon, pts[0].lat]];
+  const flush = () => { if (run.length > 1) feats.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: run } }); };
+  const end = Math.min(upto, pts.length - 1);
+  for (let j = 1; j <= Math.ceil(end); j++) {
+    const a = pts[j - 1], b = pts[j], f = Math.min(1, end - (j - 1));
+    if (b.jump) {
+      flush();
+      const full = arc(a, b);
+      const part = full.slice(0, Math.max(2, Math.round((full.length - 1) * f) + 1));
+      feats.push({ type: 'Feature', properties: { jump: true }, geometry: { type: 'LineString', coordinates: part } });
+      run = [part[part.length - 1]];
+    } else {
+      run.push(f < 1 ? [a.lon + (b.lon - a.lon) * f, a.lat + (b.lat - a.lat) * f] : [b.lon, b.lat]);
+    }
+  }
+  flush();
+  return { type: 'FeatureCollection', features: feats };
+}
+let routeAnim = 0;
+function setRoute(upto) {
+  S.routeUpto = upto;
+  S.routeData = routeGeo(S.route || [], upto);
+  const src = map && map.getSource('route');
+  if (src) src.setData(S.routeData);
+}
+function animateRoute(to, dur = 1600) {
+  cancelAnimationFrame(routeAnim);
+  const from = S.routeUpto || 0;
+  if (reduceMotion || dur <= 0) return Promise.resolve(setRoute(to));
+  return new Promise((res) => {
+    const t0 = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      setRoute(from + (to - from) * easeInOutQuint(t));
+      if (t < 1) routeAnim = requestAnimationFrame(step); else res();
+    };
+    routeAnim = requestAnimationFrame(step);
+  });
+}
+function clearRoute() { cancelAnimationFrame(routeAnim); S.route = []; setRoute(0); }
 
 /* ════════════════════════════════════════════════════════════
    Dashboard rendering
    ════════════════════════════════════════════════════════════ */
-function refilter() {
+function refilter(opts = {}) {
   const ds = S.ds;
-  S.tests = ds.tests.filter((t) => S.types.has(t.type) && S.years.has(t.year));
+  const inPeriod = S.tab === 'timeline'
+    ? (t) => t.ts && t.year === S.tl.year && (S.tl.month == null || new Date(t.ts).getMonth() === S.tl.month)
+    : (t) => S.years.has(t.year);
+  S.tests = ds.tests.filter((t) => S.types.has(t.type) && inPeriod(t));
   const m = new Map();
   for (const t of S.tests) {
     let s = m.get(t.key);
@@ -565,8 +747,14 @@ function refilter() {
     s.tests.push(t);
   }
   S.spots = [...m.values()];
+  S.spotByKey = m;
   for (const s of S.spots) s.st = stats(s.tests);
   pushData();
+  if (S.tab === 'timeline') {
+    S.route = routePoints(stays(S.tests));
+    if (opts.animateRoute) { setRoute(0); animateRoute(S.route.length - 1, 1800); }
+    else setRoute(S.route.length - 1);
+  }
   renderPanel();
   if (S.sel) {
     const keep = new Set(S.tests);
@@ -635,6 +823,7 @@ function renderPanel() {
   renderCities();
   renderChips();
   renderFoot();
+  if (S.tab === 'timeline') renderTimeline();
 }
 
 function renderCities() {
@@ -684,7 +873,7 @@ function renderLegend() {
   const M = METRICS[S.metric], st = colorStops(S.metric);
   const lo = st[0][0], hi = st[st.length - 1][0];
   const grad = st.map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(', ');
-  $('#legend').innerHTML = `<b>${M.name}（${M.unit}）· 圆越大测得越多</b>
+  $('#legend').innerHTML = `<b>${M.name}（${M.unit}）· 角标是测试次数</b>
     <div class="ramp" style="--ramp:linear-gradient(90deg, ${grad})"></div>
     <div class="ticks">${st.map(([v], i) => `<span>${i === 0 ? '≤' : i === st.length - 1 ? '≥' : ''}${v}</span>`).join('')}</div>`;
 }
@@ -702,10 +891,8 @@ function setMetric(m) {
   S.metric = m;
   document.querySelectorAll('#metric button').forEach((b) => b.setAttribute('aria-selected', b.dataset.m === m));
   positionPill();
-  if (map && map.getLayer('dots')) {
-    map.setPaintProperty('dots', 'circle-color', colorExpr(m));
-    map.setPaintProperty('glow', 'circle-color', colorExpr(m));
-  }
+  if (map && map.getLayer('glow')) map.setPaintProperty('glow', 'circle-color', colorExpr(m));
+  scheduleMarkers();
   renderLegend(); renderPanel();
   if (S.sel) renderDetail(S.sel);
 }
@@ -759,7 +946,22 @@ function renderDetail(group) {
     </svg></div>`;
   }
 
-  const cap = 250;
+  // Photos-style grid: one tile per test, grouped under month headers.
+  const cap = 240;
+  let lastMonth = '';
+  const grid = tests.slice(0, cap).map((t, i) => {
+    const d = t.ts ? new Date(t.ts) : null;
+    const mk = d ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月` : '时间未知';
+    const head = mk !== lastMonth ? `<h4 class="mh">${mk}</h4>` : '';
+    lastMonth = mk;
+    const v = metricOf(t, S.metric);
+    const info = `${d ? fmtWhen(t.ts) : '时间未知'} · ${t.type} · ↓${fmt(t.dl)} ↑${fmt(t.ul)} Mbps · ${t.ping != null ? fmt(t.ping) + ' ms' : '无延迟'} · ${t.server || '未知节点'} · ${t.city}`;
+    return head + `<div class="tile" style="--c:${colorFor(S.metric, v)};--tc:${typeColor(t.type)};--i:${Math.min(i, 30)}" title="${esc(info)}">
+      <span class="tt"><i></i>${esc(t.type)}<em>${d ? `${d.getDate()} 日` : ''}</em></span>
+      <b class="num">${fmt(v)}</b>
+      <span class="tm">${M.unit}${d ? ` · ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''}</span>
+    </div>`;
+  }).join('');
   $('#detail').innerHTML = `
     <header>
       <div><h3>${esc(group.title)}</h3><p>${tests.length} 次测试${nSpots > 1 ? ` · ${nSpots} 个地点` : ''}${range ? ` · ${range}` : ''}</p></div>
@@ -769,14 +971,142 @@ function renderDetail(group) {
       ${['dl', 'ul', 'ping'].map((k) => `<div><b style="color:${k === S.metric ? colorFor(k, st[k]) : 'inherit'}">${fmt(st[k])}</b><span>${METRICS[k].name} ${METRICS[k].unit}</span></div>`).join('')}
     </div>
     ${spark}
-    <div class="tests">
-      ${tests.slice(0, cap).map((t, i) => `<div class="test" style="--i:${Math.min(i, 20)}">
-        <span class="when"><span class="tag" style="--c:${typeColor(t.type)}">${esc(t.type)}</span>${t.ts ? fmtWhen(t.ts) : '时间未知'}</span>
-        <span class="sp">↓ ${fmt(t.dl)} <span>·</span> ↑ ${fmt(t.ul)} <span>· ${t.ping != null ? fmt(t.ping) + ' ms' : '–'}</span></span>
-        <span class="srv">${esc(t.server || '未知节点')}${nSpots > 1 ? ` · ${esc(t.city)}` : ''}</span>
-      </div>`).join('')}
-      ${tests.length > cap ? `<p class="foot" style="text-align:center">还有 ${tests.length - cap} 条，放大地图查看具体地点</p>` : ''}
+    <div class="tests grid">
+      ${grid}
+      ${tests.length > cap ? `<p class="foot more-note">还有 ${tests.length - cap} 条，放大地图查看具体地点</p>` : ''}
     </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════
+   Timeline panel
+   ════════════════════════════════════════════════════════════ */
+const tlYears = () => [...new Set(S.ds.tests.filter((t) => t.ts).map((t) => t.year))].sort((a, b) => a - b);
+const fmtMD = (ts) => { const d = new Date(ts); return `${d.getMonth() + 1}.${d.getDate()}`; };
+const fmtKm = (d) => `${Math.round(d).toLocaleString('en-US')} km`;
+const dayStart = (ts) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
+function renderTimeline() {
+  const years = tlYears(), y = S.tl.year, mo = S.tl.month, M = METRICS[S.metric];
+  const months = Array(12).fill(0);
+  for (const t of S.ds.tests) if (t.ts && t.year === y && S.types.has(t.type)) months[new Date(t.ts).getMonth()]++;
+  const mmax = Math.max(1, ...months);
+  const segs = stays(S.tests); S.segs = segs;
+  let dist = 0;
+  for (let i = 1; i < S.route.length; i++) dist += km(S.route[i - 1], S.route[i]);
+  const cities = new Set(S.tests.map((t) => t.city)).size;
+  const yi = years.indexOf(y);
+
+  let list = '';
+  segs.forEach((g, i) => {
+    if (i) {
+      const d = km(segs[i - 1].tests[segs[i - 1].tests.length - 1], g.tests[0]);
+      if (d >= 20) list += `<li class="move"><span class="mi">${d > 400 ? ICON.plane : ICON.car}</span><span>${fmtKm(d)}</span></li>`;
+    }
+    const v = median(g.tests.map((t) => metricOf(t, S.metric)).filter((x) => x != null));
+    const days = Math.round((dayStart(g.to) - dayStart(g.from)) / DAY) + 1;
+    list += `<li><button type="button" class="stay" data-seg="${i}" style="--c:${colorFor(S.metric, v)};--i:${Math.min(i, 24)}">
+      <span class="node"></span>
+      <span class="st-main"><b>${esc(g.city)}</b><span>${fmtMD(g.from)}${days > 1 ? ` – ${fmtMD(g.to)} · ${days} 天` : ''} · ${g.tests.length} 次</span></span>
+      <span class="st-v num">${fmt(v)}<small>${M.unit}</small></span>
+    </button></li>`;
+  });
+
+  $('#tl').innerHTML = `
+    <div class="tl-head">
+      <button type="button" class="tl-nav" data-dy="-1" ${yi <= 0 ? 'disabled' : ''} aria-label="上一年">‹</button>
+      <div class="tl-title"><b class="num">${y} 年${mo != null ? ` ${mo + 1} 月` : ''}</b>
+        <span>${S.tests.length} 次测试 · ${cities} 座城市${dist >= 1 ? ` · 移动约 ${fmtKm(dist)}` : ''}</span></div>
+      <button type="button" class="tl-nav" data-dy="1" ${yi >= years.length - 1 ? 'disabled' : ''} aria-label="下一年">›</button>
+    </div>
+    <div class="months" role="group" aria-label="按月份筛选">${months.map((c, i) =>
+      `<button type="button" data-mo="${i}" aria-pressed="${mo === i}" ${c ? '' : 'disabled'} title="${i + 1} 月 · ${c} 次"><i style="--h:${((c / mmax) * 100).toFixed(0)}%"></i><span>${i + 1}</span></button>`).join('')}</div>
+    <button type="button" class="btn play-btn" id="playBtn" ${segs.length ? '' : 'disabled'}></button>
+    <ol class="stays">${list || '<li class="empty">这段时间没有带时间的测速记录</li>'}</ol>`;
+  updatePlayBtn();
+}
+function updatePlayBtn() {
+  const b = $('#playBtn'); if (!b) return;
+  b.classList.toggle('on', !!S.playing);
+  b.innerHTML = S.playing ? `${ICON.stop}停止回放` : `${ICON.play}回放${S.tl.month != null ? '这个月' : '这一年'}`;
+}
+function markStay(i) {
+  document.querySelectorAll('#tl .stay').forEach((b) => b.classList.toggle('on', +b.dataset.seg === i));
+  if (i >= 0) document.querySelector(`#tl .stay[data-seg="${i}"]`)?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+function positionTabs() {
+  const tabs = $('#tabs'), btn = tabs.querySelector('[aria-selected="true"]'), pill = tabs.querySelector('.tabs-pill');
+  pill.style.setProperty('--x', btn.offsetLeft + 'px');
+  pill.style.setProperty('--w', btn.offsetWidth + 'px');
+}
+function setTab(tab) {
+  if (tab === S.tab) return;
+  if (tab === 'timeline' && !tlYears().length) { toast('这份数据没有时间信息'); return; }
+  stopPlay(); closeDetail();
+  S.tab = tab;
+  document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === tab));
+  positionTabs();
+  $('#ov').hidden = tab !== 'overview';
+  $('#tl').hidden = tab !== 'timeline';
+  if (tab === 'timeline') {
+    const ys = tlYears();
+    if (!ys.includes(S.tl.year)) S.tl.year = ys[ys.length - 1];
+    S.tl.month = null;
+    refilter({ animateRoute: true });
+    fit(S.tests, { duration: 1800 });
+  } else {
+    clearRoute();
+    refilter();
+    fit(homeSpots(), { duration: 1800, maxZoom: 11 });
+  }
+}
+function setPeriod(year, month) {
+  stopPlay(); closeDetail();
+  S.tl.year = year; S.tl.month = month;
+  refilter({ animateRoute: true });
+  fit(S.tests, { duration: 1600 });
+}
+
+/* Playback: walk through the stays in order — the camera flies to each one while the route grows behind it. */
+let playToken = 0;
+async function startPlay() {
+  const segs = S.segs || [];
+  if (!segs.length || !map) return;
+  const token = ++playToken;
+  S.playing = true; updatePlayBtn();
+  closeDetail(); hideTip();
+  if (isCompact()) $('#panel').classList.remove('expanded');
+  const lastIdx = [];
+  S.route.forEach((p, i) => { lastIdx[p.seg] = i; });
+  cancelAnimationFrame(routeAnim); setRoute(0);
+  const dwell = Math.max(900, Math.min(2000, 32000 / segs.length));
+  const chip = $('#playChip');
+  chip.classList.add('show');
+  for (let i = 0; i < segs.length; i++) {
+    if (token !== playToken) return;
+    const g = segs[i];
+    $('#pcDate').textContent = fmtDate(g.from) + (dayStart(g.to) > dayStart(g.from) ? ` – ${fmtMD(g.to)}` : '');
+    $('#pcCity').textContent = g.city;
+    chip.classList.remove('tick'); void chip.offsetWidth; chip.classList.add('tick');
+    markStay(i);
+    const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null;
+    const travel = prev && km(prev, g.tests[0]) > 300 ? dwell * 1.5 : dwell * .8;
+    fit(g.tests, { maxZoom: 12, duration: travel });
+    await animateRoute(lastIdx[i] ?? S.routeUpto, travel * .9);
+    if (token !== playToken) return;
+    await sleep(dwell * .55);
+  }
+  if (token !== playToken) return;
+  stopPlay();
+  fit(S.tests, { duration: 2000 });
+}
+function stopPlay() {
+  if (!S.playing) return;
+  playToken++; S.playing = false;
+  cancelAnimationFrame(routeAnim);
+  $('#playChip').classList.remove('show');
+  markStay(-1);
+  if (S.tab === 'timeline') setRoute(S.route.length - 1);
+  updatePlayBtn();
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -787,6 +1117,10 @@ function enterDash(ds, opts) {
   S.types = new Set(ds.tests.map((t) => t.type));
   S.years = new Set(ds.tests.map((t) => t.year));
   S.sel = null; S.citiesAll = false; S.metric = 'dl';
+  S.tab = 'overview'; S.tl = { year: null, month: null }; S.route = []; S.routeUpto = 0; S.routeData = null;
+  S.popAt = performance.now() + (reduceMotion ? 0 : 1500);
+  document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === 'overview'));
+  $('#ov').hidden = false; $('#tl').hidden = true;
   document.querySelectorAll('#metric button').forEach((b) => b.setAttribute('aria-selected', b.dataset.m === 'dl'));
   $('#detail').classList.remove('show');
   $('#panel').classList.remove('expanded');
@@ -803,7 +1137,8 @@ function enterDash(ds, opts) {
   refilter();
   S.view = 'dash'; body.dataset.view = 'dash';
   $('#dash').setAttribute('aria-hidden', 'false');
-  requestAnimationFrame(positionPill);
+  requestAnimationFrame(() => { positionPill(); positionTabs(); });
+  setRoute(0);
 
   if (map) {
     map.stop();
@@ -817,7 +1152,7 @@ function exitDash() {
   if (S.view !== 'dash') return;
   S.view = 'landing'; body.dataset.view = 'landing';
   $('#dash').setAttribute('aria-hidden', 'true');
-  closeDetail(); hideTip();
+  stopPlay(); closeDetail(); hideTip(); clearRoute(); clearMarkers();
   document.title = '测速地图';
   resetLanding();
   if (map) {
@@ -1090,6 +1425,25 @@ $('#cities').addEventListener('click', (e) => {
   if (isCompact()) $('#panel').classList.remove('expanded');
   fit(spots, { maxZoom: 13, duration: 1600 });
 });
+$('#tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+$('#tl').addEventListener('click', (e) => {
+  const nav = e.target.closest('[data-dy]');
+  if (nav) { const ys = tlYears(), i = ys.indexOf(S.tl.year) + +nav.dataset.dy; if (ys[i] != null) setPeriod(ys[i], null); return; }
+  const mo = e.target.closest('[data-mo]');
+  if (mo) { const m = +mo.dataset.mo; setPeriod(S.tl.year, S.tl.month === m ? null : m); return; }
+  if (e.target.closest('#playBtn')) { if (S.playing) stopPlay(); else startPlay(); return; }
+  const st = e.target.closest('[data-seg]');
+  if (st) {
+    stopPlay();
+    const g = S.segs[+st.dataset.seg]; if (!g) return;
+    const keys = new Set(g.tests.map((t) => t.key));
+    const one = keys.size === 1 ? g.tests[0] : null;
+    openDetail({ title: g.city, tests: [...g.tests].reverse(), center: one ? [one.lon, one.lat] : null });
+    markStay(+st.dataset.seg);
+    if (isCompact()) $('#panel').classList.remove('expanded');
+    fit(g.tests, { maxZoom: 13, duration: 1400 });
+  }
+});
 $('#detail').addEventListener('click', (e) => { if (e.target.closest('#closeDetail')) closeDetail(); });
 $('#handle').addEventListener('click', () => $('#panel').classList.toggle('expanded'));
 $('#home').addEventListener('click', () => { history.pushState({}, '', '/'); exitDash(); });
@@ -1124,7 +1478,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('resize', () => {
   if (!map) return;
-  if (S.view === 'dash') { positionPill(); map.setPadding(camPadding()); }
+  if (S.view === 'dash') { positionPill(); positionTabs(); map.setPadding(camPadding()); }
   else { map.setPadding(landingPadding()); map.setZoom(landingZoom()); }
 });
 addEventListener('popstate', route);

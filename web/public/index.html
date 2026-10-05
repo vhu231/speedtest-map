@@ -91,24 +91,35 @@
     </div>
     <div class="kpis" id="kpis"></div>
 
+    <div class="tabs" id="tabs" role="tablist" aria-label="视图">
+      <span class="tabs-pill" aria-hidden="true"></span>
+      <button type="button" role="tab" data-tab="overview" aria-selected="true">概览</button>
+      <button type="button" role="tab" data-tab="timeline" aria-selected="false">时间线</button>
+    </div>
+
     <div class="group">
       <h2>网络</h2>
       <div class="chips" id="types"></div>
     </div>
-    <div class="group">
-      <h2>年份</h2>
-      <div class="chips" id="years"></div>
+
+    <div id="ov">
+      <div class="group">
+        <h2>年份</h2>
+        <div class="chips" id="years"></div>
+      </div>
+
+      <div class="group">
+        <h2>按网络类型 · 中位数</h2>
+        <div class="bars" id="netBars"></div>
+      </div>
+
+      <div class="group">
+        <h2>按城市 · 中位数</h2>
+        <ol class="cities" id="cities"></ol>
+      </div>
     </div>
 
-    <div class="group">
-      <h2>按网络类型 · 中位数</h2>
-      <div class="bars" id="netBars"></div>
-    </div>
-
-    <div class="group">
-      <h2>按城市 · 中位数</h2>
-      <ol class="cities" id="cities"></ol>
-    </div>
+    <div id="tl" hidden></div>
 
     <p class="foot" id="foot"></p>
   </aside>
@@ -122,6 +133,8 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.6 5.4 3.6 8.5s-1 6.1-3.6 8.5c-2.6-2.4-3.6-5.4-3.6-8.5S9.4 5.9 12 3.5Z"/></svg>
     </button>
   </div>
+
+  <div class="playchip glass" id="playChip" aria-live="polite"><span id="pcDate"></span><b id="pcCity"></b></div>
 
   <article class="detail glass" id="detail" aria-live="polite"></article>
 </section>
