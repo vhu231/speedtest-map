@@ -1,0 +1,7 @@
+name = "speedtest-map-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "speedtest-map"

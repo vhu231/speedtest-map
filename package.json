@@ -1,0 +1,15 @@
+{
+  "name": "speedtest-map",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:api": "wrangler dev --config worker/wrangler.toml --port 8787",
+    "dev:web": "cd web && wrangler pages dev --port 8788 --service API=speedtest-map-api",
+    "deploy:api": "wrangler deploy --config worker/wrangler.toml",
+    "deploy:web": "cd web && wrangler pages deploy",
+    "deploy": "npm run deploy:api && npm run deploy:web"
+  },
+  "devDependencies": {
+    "wrangler": "^4.147.0"
+  }
+}
