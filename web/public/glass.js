@@ -11,14 +11,15 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.m
 
 const dark = matchMedia('(prefers-color-scheme: dark)');
 
-/* Which elements become glass, and how. bevel/thick/frost in CSS px. */
+/* Which elements become glass, and how. bevel/thick/frost in CSS px; tintDark overrides the dark-mode
+   tint colour (the drop zone sits over black space, where a near-black tint makes it vanish). */
 const TARGETS = [
   // content-heavy surfaces: frosted so text stays legible
   ['.panel', { frost: 18, tint: .46, bevel: 24, thick: 20 }],
   ['.detail', { frost: 18, tint: .46, bevel: 24, thick: 20 }],
   ['.tip', { frost: 12, tint: .5, bevel: 14, thick: 12 }],
   // controls: clear glass, the content shows through bent at the rim
-  ['.drop-inner', { frost: 2.5, tint: .16, bevel: 30, thick: 34 }],
+  ['.drop-inner', { frost: 6, tint: .34, tintDark: 0x3a3a40, bevel: 30, thick: 34 }],
   ['.title', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
   ['#actions', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
   ['#tabs', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
@@ -200,7 +201,7 @@ const layer = {
       u.uFrost.value = it.opts.frost * sx;
       u.uOpacity.value = op;
       u.uDpr.value = sx;
-      u.uTint.value.copy(tint);
+      if (dark.matches && it.opts.tintDark != null) u.uTint.value.set(it.opts.tintDark); else u.uTint.value.copy(tint);
       u.uTintA.value = dark.matches ? it.opts.tint : Math.min(.8, it.opts.tint + .15);
       u.uMouse.value.set((mouse.x - r.left) * sx, (mouse.y - r.top) * sy);
     }

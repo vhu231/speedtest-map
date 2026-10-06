@@ -152,6 +152,7 @@ function readDataset(text, name) {
     lat: col('latitude'), lon: col('longitude'),
     dl: col('download speed', 'download (mbps)', 'download'), ul: col('upload speed', 'upload (mbps)', 'upload'),
     ping: col('latency', 'ping'), server: col('server name', 'server'),
+    ip: col('external ip', 'externalip', 'public ip'),
   };
   if (ix.lat < 0 || ix.lon < 0 || ix.dl < 0) throw fail('err.noCols');
 
@@ -172,13 +173,15 @@ function readDataset(text, name) {
       ts: ts ?? 0, year: ts ? new Date(ts).getFullYear() : 0,
       type: normType(c[ix.type]), lat, lon, key, city,
       dl, ul: isFinite(ul) ? ul : null, ping, server: (c[ix.server] || '').trim(),
+      ip: ix.ip >= 0 ? (c[ix.ip] || '').trim() : '',
     });
   }
   if (!tests.length) throw fail('err.noGeo');
   tests.sort((a, b) => b.ts - a.ts);
 
-  // Public copy for sharing: the same CSV minus anything that identifies the uploader's network.
-  const keep = h.map((x, i) => (/(^|\s)ip$/.test(x) || x.includes(' ip') ? -1 : i)).filter((i) => i >= 0);
+  // Public copy for sharing: External IP stays (viewers look up the operator from it); Internal IP,
+  // the uploader's LAN address, is dropped.
+  const keep = h.map((x, i) => (/^internal\s*ip/.test(x) ? -1 : i)).filter((i) => i >= 0);
   const publicCSV = rows.map((r) => keep.map((i) => csvCell(r[i] ?? '')).join(',')).join('\n') + '\n';
 
   return { name: name.replace(/\.csv$/i, ''), tests, noPing, noGeo, publicCSV, bytes: text.length };
@@ -678,11 +681,56 @@ const placeNames = (spots) => {
 /* hover & click */
 const tip = $('#tip');
 let tipToken = 0;
-/* The CSV has no column for the tester's own carrier; the nearest it records is the operator of the
-   test server (Server Name), so the tooltip lists the most used ones at this spot. */
-function carriersOf(spots) {
+/* Operator: the CSV's External IP looked up on ipinfo.io, whose "org" reads "AS9269 Hong Kong
+   Broadband Network Ltd." (the AS number is dropped for display). Answers are cached in this browser.
+   Rows without an External IP (older exports, the demo) fall back to the test server's name. */
+const IPINFO_KEY = 'stm.ipinfo.v1';
+const ipInfo = new Map(Object.entries((() => { try { return JSON.parse(localStorage.getItem(IPINFO_KEY)) || {}; } catch { return {}; } })()));
+const ipPending = new Map(), ipQueue = [];
+let ipActive = 0, ipSaveT = 0;
+const isPublicIP = (ip) => (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)
+  ? !/^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(ip)
+  : ip.includes(':') && /^[0-9a-f:]+$/i.test(ip) && !/^(::1?$|f[cd]|fe80)/i.test(ip));
+function lookupIP(ip) {
+  if (!ip || !isPublicIP(ip)) return Promise.resolve(null);
+  if (ipInfo.has(ip)) return Promise.resolve(ipInfo.get(ip));
+  if (!ipPending.has(ip)) ipPending.set(ip, new Promise((resolve) => { ipQueue.push({ ip, resolve }); pumpIP(); }));
+  return ipPending.get(ip);
+}
+function pumpIP() {
+  while (ipActive < 4 && ipQueue.length) {
+    const { ip, resolve } = ipQueue.shift();
+    ipActive++;
+    fetch(`https://ipinfo.io/${encodeURIComponent(ip)}/json`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const info = j && !j.bogon && j.org ? { org: j.org, city: j.city || '', country: j.country || '' } : null;
+        if (info) { ipInfo.set(ip, info); saveIPInfo(); }
+        resolve(info);
+      })
+      .catch(() => resolve(null))
+      .finally(() => { ipActive--; ipPending.delete(ip); pumpIP(); });
+  }
+}
+function saveIPInfo() {
+  clearTimeout(ipSaveT);
+  ipSaveT = setTimeout(() => { try { localStorage.setItem(IPINFO_KEY, JSON.stringify(Object.fromEntries(ipInfo))); } catch {} }, 500);
+}
+const orgName = (org) => org.replace(/^AS\d+\s+/, '').trim();
+/* Synchronous: the operator when its IP is already looked up, else the test server. */
+const carrierOf = (t) => { const i = t.ip && ipInfo.get(t.ip); return i ? orgName(i.org) : t.server; };
+/* Look up every External IP in the background; an open detail card picks the names up when done. */
+async function prefetchCarriers(tests) {
+  const ips = [...new Set(tests.map((t) => t.ip).filter((ip) => ip && !ipInfo.has(ip) && isPublicIP(ip)))];
+  if (!ips.length) return;
+  await Promise.all(ips.map(lookupIP));
+  if (S.sel && S.view === 'dash') renderDetail(S.sel);
+}
+async function carriersOf(spots) {
+  const tests = spots.flatMap((s) => s.tests);
+  await Promise.all([...new Set(tests.map((t) => t.ip).filter(Boolean))].map(lookupIP));
   const c = new Map();
-  for (const s of spots) for (const t of s.tests) if (t.server) c.set(t.server, (c.get(t.server) || 0) + 1);
+  for (const t of tests) { const n = carrierOf(t); if (n) c.set(n, (c.get(n) || 0) + 1); }
   const top = [...c.entries()].sort((a, b) => b[1] - a[1]);
   return { names: top.slice(0, 3).map((x) => x[0]), more: Math.max(0, top.length - 3) };
 }
@@ -701,12 +749,14 @@ async function showMarkerTip(m) {
   };
   if (!p.cluster) {
     const s = S.spotByKey.get(p.k);
-    render(cityName(s?.city || ''), s ? carriersOf([s]) : null);
+    render(cityName(s?.city || ''));
+    if (s) render(cityName(s.city), await carriersOf([s]));
     return;
   }
   render(tr('nPlaces', { n: p.point_count }));
   const spots = await leavesOf(m);
-  render(placeNames(spots), carriersOf(spots));
+  render(placeNames(spots));
+  render(placeNames(spots), await carriersOf(spots));
 }
 function placeTip(pt) {
   const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -1066,7 +1116,7 @@ function renderDetail(group) {
     const d = t.ts ? new Date(t.ts) : null;
     const mk = d ? monthHead(d.getFullYear(), d.getMonth()) : tr('noTime');
     if (mk !== lastMonth) { list += `${lastMonth ? '</ul>' : ''}<h4 class="mh">${mk}</h4><ul class="rows">`; lastMonth = mk; }
-    const srv = (t.server || tr('noServer')) + (nSpots > 1 ? ` · ${cityName(t.city)}` : '');
+    const srv = (carrierOf(t) || tr('noServer')) + (nSpots > 1 ? ` · ${cityName(t.city)}` : '');
     list += `<li class="row test" style="--i:${Math.min(i, 24)}">
       <span class="rn"><b class="num">${d ? `${tr('day', { d: d.getDate() })} ${pad(d.getHours())}:${pad(d.getMinutes())}` : tr('noTime')}</b><small>${esc(typeName(t.type))} · ${esc(srv)}</small></span>
       ${trioInline(t)}
@@ -1271,6 +1321,7 @@ function enterDash(ds, opts) {
   S.types = new Set(ds.tests.map((t) => t.type));
   S.years = new Set(ds.tests.map((t) => t.year));
   S.sel = null; S.citiesAll = false;
+  prefetchCarriers(ds.tests);
   S.tab = 'overview'; S.tl = { span: '1y', end: null, start: 0 }; S.route = []; S.routeUpto = 0; S.routeData = null;
   S.popAt = performance.now() + (reduceMotion ? 0 : 1500);
   document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === 'overview'));
@@ -1538,6 +1589,7 @@ function showHelp() {
     <ul class="privacy">
       <li>${tr('priv.1')}</li>
       <li>${tr('priv.2')}</li>
+      <li>${tr('priv.ip')}</li>
       <li>${tr('priv.3')}</li>
       <li>${tr('priv.4', { gh: '<a href="https://github.com/vhu231/speedtest-map" target="_blank" rel="noopener">GitHub</a>' })}</li>
     </ul>

@@ -122,6 +122,8 @@ svg { flex: none; }
   box-shadow: var(--shadow) !important;
 }
 .gl-live .gl-glass::before, .gl-live .gl-glass::after { display: none !important; }
+/* the drop zone keeps a hairline so its shape reads over black space */
+.gl-live .drop-inner.gl-glass { background: var(--fill-3) !important; box-shadow: inset 0 0 0 .5px var(--glass-rim), var(--shadow) !important; }
 
 /* ─────────────────────────────────────────────────────────────
    Controls

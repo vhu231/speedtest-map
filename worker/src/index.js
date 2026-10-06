@@ -17,8 +17,9 @@ const PREFIX = 'shares/';
 const DEFAULT_LIMIT = 9.5 * 1024 ** 3;     // R2 free tier is 10 GB-month; keep a margin
 const ID_ALPHABET = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ID_RE = /^[A-Za-z0-9]{6,32}$/;
-// Columns that identify the uploader's network; never stored, even if the client forgot to drop them.
-const PRIVATE_COLUMNS = ['external ip', 'internal ip'];
+// The uploader's LAN address; never stored, even if the client forgot to drop it. External IP is kept:
+// viewers look the operator up from it.
+const PRIVATE_COLUMNS = ['internal ip'];
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
