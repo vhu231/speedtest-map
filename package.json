@@ -1,6 +1,13 @@
 {
   "name": "speedtest-map",
   "private": true,
+  "description": "Put your Speedtest CSV export on a map, view it locally or share a link.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vhu231/speedtest-map.git"
+  },
+  "homepage": "https://speed.niantic.club",
   "type": "module",
   "scripts": {
     "dev:api": "wrangler dev --config worker/wrangler.toml --port 8787",

@@ -308,6 +308,7 @@ function initMap() {
     });
   } catch (e) { console.warn(e); body.classList.add('map-ready'); return; }
   map.setPadding(landingPadding());
+  setInteractive(false);
   map.on('style.load', onStyle);
   map.once('load', () => setTimeout(() => body.classList.add('map-ready'), 80));
   map.on('error', (e) => { console.warn('map', e && e.error); body.classList.add('map-ready'); });
@@ -330,6 +331,13 @@ function initMap() {
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
+}
+
+/* The landing globe is scenery: it spins on its own and ignores the pointer until the map view opens. */
+const HANDLERS = ['dragPan', 'dragRotate', 'scrollZoom', 'boxZoom', 'doubleClickZoom', 'keyboard', 'touchZoomRotate', 'touchPitch'];
+function setInteractive(on) {
+  if (!map) return;
+  for (const h of HANDLERS) { try { on ? map[h].enable() : map[h].disable(); } catch {} }
 }
 
 function onStyle() {
@@ -1136,6 +1144,7 @@ function enterDash(ds, opts) {
   setDotScale(0);
   refilter();
   S.view = 'dash'; body.dataset.view = 'dash';
+  setInteractive(true);
   $('#dash').setAttribute('aria-hidden', 'false');
   requestAnimationFrame(() => { positionPill(); positionTabs(); });
   setRoute(0);
@@ -1151,6 +1160,7 @@ function enterDash(ds, opts) {
 function exitDash() {
   if (S.view !== 'dash') return;
   S.view = 'landing'; body.dataset.view = 'landing';
+  setInteractive(false);
   $('#dash').setAttribute('aria-hidden', 'true');
   stopPlay(); closeDetail(); hideTip(); clearRoute(); clearMarkers();
   document.title = '测速地图';
@@ -1353,6 +1363,27 @@ function route() {
    Events
    ════════════════════════════════════════════════════════════ */
 $('#file').addEventListener('change', (e) => handleFile(e.target.files[0]));
+function showHelp() {
+  openSheet(`
+    <h3 class="t" id="sheetTitle">怎么导出 CSV？</h3>
+    <ol class="steps">
+      <li><span>打开 <a href="https://www.speedtest.net/en/results" target="_blank" rel="noopener">speedtest.net/en/results</a> 并登录你的 Speedtest 账户。</span></li>
+      <li><span>在「结果历史记录」右上角点 <kbd>Export Results</kbd>，浏览器会下载一个 CSV 文件。</span></li>
+      <li><span>把这个 CSV 拖进本页，或点上传框选择它。</span></li>
+    </ol>
+    <h4 class="sub">数据与隐私</h4>
+    <ul class="privacy">
+      <li>选「在本机查看」时，CSV 只在你的浏览器里解析，不会上传。</li>
+      <li>选「生成分享链接」时，会先删除内网和外网 IP 两列，再把剩下的内容存到 Cloudflare R2；拿到链接的人都能看到。</li>
+      <li>在同一个浏览器里可以随时「停止分享」，链接立即失效，云端数据一并删除。</li>
+      <li>源代码以 MIT 许可在 <a href="https://github.com/vhu231/speedtest-map" target="_blank" rel="noopener">GitHub</a> 公开。</li>
+    </ul>
+    <div class="btn-row"><button type="button" class="btn primary" id="sheetCancel" data-autofocus>知道了</button></div>`);
+}
+$('#help').addEventListener('click', showHelp);
+$('#privacy').addEventListener('click', showHelp);
+document.addEventListener('click', (e) => { if (e.target.closest('[data-help]')) showHelp(); });
+
 $('#demo').addEventListener('click', () => {
   history.pushState({}, '', '/');
   enterDash(demoDataset(), { mode: 'demo' });

@@ -1,12 +1,20 @@
 # 测速地图 · Speedtest Map
 
-把 Speedtest App 导出的 CSV 拖进网页，每一次测速都会落在一颗可以拖动的地球上。可以只在本机查看，也可以一键生成分享链接发给别人。
+在线使用：**https://speed.niantic.club**
+
+把 Speedtest 导出的 CSV 拖进网页，每一次测速都会落在一颗可以拖动的地球上。可以只在本机查看，也可以一键生成分享链接发给别人。
 
 - **本机查看**：CSV 只在浏览器里解析，不会上传。
 - **分享**：上传前先去掉 `External Ip` / `Internal Ip` 两列（Worker 端会再删一遍），存进 Cloudflare R2，生成 `/s/<id>` 链接。上传者在同一个浏览器里可以随时「停止分享」，云端的数据会一起删掉。
 - 地图标记参考苹果「照片」的地图：带白边的圆角方块显示该处的中位数，角标是测试次数，缩放时会弹性地合并、拆开；点一个合并块，会列出里面的每一次测试（按月份分组的方块网格）。
 - 「时间线」参考 Google 地图时间线：按年、按月翻看，把测试整理成「停留」（某城市某几天）和「移动」（车程或飞行距离），地图上按时间连出轨迹，远程移动画成虚线大圆弧；还能一键回放这一年的行程。
 - 可按下载、上传或延迟上色，按网络类型和年份筛选，左侧有按网络类型和按城市的中位数。
+
+## 怎么导出 CSV
+
+1. 打开 https://www.speedtest.net/en/results 并登录。
+2. 在「结果历史记录」右上角点 **Export Results**，下载 CSV。
+3. 把 CSV 拖进网页。
 
 ## 结构
 
@@ -81,3 +89,9 @@ npm run deploy
 - 城市名按坐标就近归类，深港交界一带用了一条粗略的分界线，可能不准。
 - 延迟为 0 的记录（早期导出常见）不计入延迟统计。
 - 底图来自 CARTO / OpenStreetMap，需要联网。
+
+## 许可
+
+[MIT](LICENSE) © 2026 vhu231
+
+底图 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 贡献者 · © [CARTO](https://carto.com/attributions)；地图渲染使用 [MapLibre GL JS](https://maplibre.org/)（BSD-3-Clause）。

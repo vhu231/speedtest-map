@@ -784,3 +784,42 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
 @media (max-width: 860px) {
   .playchip { top: 128px; }
 }
+
+/* Landing: secondary actions, footer, help sheet */
+.ghost-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 22px; }
+.ghost-row .ghost { margin-top: 0; }
+.site-foot {
+  position: absolute; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); translate: -50% 0;
+  display: flex; align-items: center; gap: 10px; white-space: nowrap;
+  font-size: 12.5px; color: var(--fg2); padding: 7px 16px; border-radius: 999px;
+  background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  border: .5px solid var(--glass-edge);
+}
+.site-foot a, .site-foot button, .foot.links a, .foot.links button {
+  color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; transition: color .2s;
+}
+.site-foot a:hover, .site-foot button:hover, .foot.links a:hover, .foot.links button:hover { color: var(--fg); }
+.site-foot svg { width: 14px; height: 14px; fill: currentColor; }
+.foot.links { margin-top: 10px; }
+@media (max-height: 700px) { .site-foot { position: static; translate: none; margin-top: 22px; } }
+
+.steps { list-style: none; counter-reset: step; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.steps li {
+  counter-increment: step; display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start;
+  padding: 12px 14px; border-radius: 16px; background: var(--fill2); font-size: 14.5px; line-height: 1.5;
+}
+.steps li::before {
+  content: counter(step); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(145deg, #0a84ff, #5e5ce6); color: #fff; font: 700 13px/1 var(--num);
+}
+.steps a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.steps a:hover { text-decoration: underline; }
+.steps kbd {
+  font: 600 12.5px/1 var(--num); padding: 3px 7px; border-radius: 6px; background: var(--fill); border: .5px solid var(--hair);
+}
+.privacy { margin: 18px 0 0; padding: 0 0 0 18px; color: var(--fg2); font-size: 13.5px; line-height: 1.6; }
+.privacy li + li { margin-top: 4px; }
+.sheet h4.sub { margin: 22px 0 0; }
+body:not([data-view="dash"]) .maplibregl-canvas-container.maplibregl-interactive { cursor: default; }
+.privacy a { color: var(--accent); text-decoration: none; }
