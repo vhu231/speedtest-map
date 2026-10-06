@@ -968,20 +968,23 @@ function renderDetail(group) {
     </svg></div>`;
   }
 
-  // Photos-style grid: one tile per test, grouped under month headers.
+  // Photos-style grid grouped under month headers; every card carries all three measurements,
+  // with the one the map is coloured by drawn largest.
   const cap = 240;
   let lastMonth = '';
+  const cell = (k, val, pre, post) =>
+    `<span class="m${k === S.metric ? ' on' : ''}">${pre ? `<small>${pre}</small>` : ''}<b class="num">${fmt(val)}</b>${post ? `<small>${post}</small>` : ''}</span>`;
   const grid = tests.slice(0, cap).map((t, i) => {
     const d = t.ts ? new Date(t.ts) : null;
     const mk = d ? monthHead(d.getFullYear(), d.getMonth()) : tr('noTime');
     const head = mk !== lastMonth ? `<h4 class="mh">${mk}</h4>` : '';
     lastMonth = mk;
     const v = metricOf(t, S.metric);
-    const info = `${d ? fmtWhen(t.ts) : tr('noTime')} · ${typeName(t.type)} · ↓${fmt(t.dl)} ↑${fmt(t.ul)} Mbps · ${t.ping != null ? fmt(t.ping) + ' ms' : tr('noPing')} · ${t.server || tr('noServer')} · ${cityName(t.city)}`;
-    return head + `<div class="tile" style="--c:${colorFor(S.metric, v)};--tc:${typeColor(t.type)};--i:${Math.min(i, 30)}" title="${esc(info)}">
-      <span class="tt"><i></i>${esc(typeName(t.type))}<em>${d ? tr('day', { d: d.getDate() }) : ''}</em></span>
-      <b class="num">${fmt(v)}</b>
-      <span class="tm">${M.unit}${d ? ` · ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''}</span>
+    const srv = (t.server || tr('noServer')) + (nSpots > 1 ? ` · ${cityName(t.city)}` : '');
+    return head + `<div class="tile" style="--c:${colorFor(S.metric, v)};--tc:${typeColor(t.type)};--i:${Math.min(i, 30)}">
+      <span class="tt"><i></i>${esc(typeName(t.type))}<em>${d ? `${tr('day', { d: d.getDate() })} ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''}</em></span>
+      <span class="tv">${cell('dl', t.dl, '↓')}${cell('ul', t.ul, '↑')}${cell('ping', t.ping, '', 'ms')}</span>
+      <span class="srv" title="${esc(srv)}">${esc(srv)}</span>
     </div>`;
   }).join('');
   $('#detail').innerHTML = `
@@ -1156,6 +1159,7 @@ function enterDash(ds, opts) {
   renderHead();
   setInteractive(true);
   $('#dash').setAttribute('aria-hidden', 'false');
+  positionPill(); positionTabs();
   requestAnimationFrame(() => { positionPill(); positionTabs(); });
   setRoute(0);
 
@@ -1556,6 +1560,7 @@ addEventListener('langchange', () => {
   }
   for (const m of markers.values()) m.key = '';
   scheduleMarkers();
+  positionPill(); positionTabs();
   requestAnimationFrame(() => { positionPill(); positionTabs(); });
 });
 

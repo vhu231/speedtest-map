@@ -255,7 +255,7 @@ const DICT = {
     mapLabel: 'Map of test locations',
     hero1: 'Every speed test,',
     hero2: 'right on the map.',
-    lede: 'Drop in your Speedtest CSV export. It’s read only in your browser —<br class="br"> nothing is uploaded unless you choose to share.',
+    lede: 'Drop in your Speedtest CSV export. It stays in your browser&nbsp;—<br class="br"> nothing is uploaded unless you choose to share.',
     dropTitle: 'Drop a CSV here, or <u>choose a file</u>',
     dropHint: 'Export it from your results page on speedtest.net',
     helpBtn: 'How do I export the CSV?',
