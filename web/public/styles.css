@@ -958,24 +958,5 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
 /* The drop zone keeps its Apple-Intelligence glow ring outside the glass. */
 .drop-inner.lg::before { z-index: 2; }
 
-/* Floating lens on the landing page */
-.lens {
-  position: fixed; left: 0; top: 0; z-index: 5; border-radius: 50%; pointer-events: none;
-  opacity: 0; transition: opacity .6s var(--ease-out);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, .28),
-    inset 3px 5px 10px -2px rgba(255, 255, 255, .45),
-    inset -4px -6px 14px -4px rgba(0, 0, 0, .35),
-    0 24px 48px -12px rgba(0, 0, 0, .55);
-  background: radial-gradient(60% 45% at 32% 22%, rgba(255, 255, 255, .22), transparent 70%);
-  will-change: transform;
-}
-.lens.show { opacity: 1; }
-.lens::after {
-  content: ""; position: absolute; inset: 0; border-radius: 50%; padding: 1.5px;
-  background: linear-gradient(140deg, rgba(255,255,255,.9), rgba(255,255,255,.05) 35%, rgba(255,255,255,0) 55%, rgba(255,255,255,.5));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor; mask-composite: exclude;
-}
 /* the side panel scrolls, so a pseudo-element rim would scroll away with it */
 .panel::before, .panel::after { display: none; }

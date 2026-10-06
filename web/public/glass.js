@@ -1,5 +1,4 @@
-// Liquid Glass: controls refract what is behind them the way Apple's Liquid Glass (and React Bits'
-// Fluid Glass) does — clear glass whose curved rim bends and slightly splits the colours of the
+// Liquid Glass: controls refract what is behind them the way Apple's Liquid Glass does — clear glass whose curved rim bends and slightly splits the colours of the
 // backdrop. Each glass element gets its own SVG displacement map sized to it, applied as a
 // backdrop-filter. Only Chromium renders SVG backdrop filters; other browsers keep the frosted glass
 // from styles.css plus the shared specular rim and pointer highlight.
@@ -8,7 +7,6 @@
 
 const NS = 'http://www.w3.org/2000/svg';
 const chromium = !!(navigator.userAgentData && navigator.userAgentData.brands.some((b) => /Chromium/.test(b.brand)));
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const defs = document.getElementById('lgDefs');
 let uid = 0;
 
@@ -114,43 +112,6 @@ addEventListener('pointermove', (e) => {
   });
 }, { passive: true });
 
-/* ── the floating lens on the landing page (React Bits "lens" mode) ──
-   It trails the pointer with critically damped easing; when the pointer is idle (or on touch) it drifts
-   slowly around the title on its own. */
-function lens() {
-  const el = document.getElementById('lens');
-  if (!el || !chromium) return;
-  const size = 168;
-  const m = mapFor(size, size, { radius: size / 2, rim: 34, zoom: 1.32, circle: true });
-  defs.appendChild(buildFilter('lgLens', size, size, m, .07));
-  el.style.width = el.style.height = `${size}px`;
-  el.style.backdropFilter = 'url(#lgLens) brightness(1.06) saturate(1.3)';
-  el.hidden = false;
-  const finePointer = matchMedia('(pointer: fine)').matches;
-  let x = innerWidth / 2, y = innerHeight * .3, tx = x, ty = y, lastMove = -1e9, last = performance.now();
-  addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') { tx = e.clientX; ty = e.clientY; lastMove = performance.now(); } }, { passive: true });
-  const step = (now) => {
-    requestAnimationFrame(step);
-    const dt = Math.min(64, now - last) / 1000; last = now;
-    const show = document.body.dataset.view === 'landing' && !document.body.classList.contains('sheet-open')
-      && !document.getElementById('landing').classList.contains('is-loading');
-    el.classList.toggle('show', show);
-    if (!show) return;
-    if (!finePointer || now - lastMove > 2600) {
-      // idle drift: a slow figure-eight over the title
-      const title = document.querySelector('.hero');
-      const r = title ? title.getBoundingClientRect() : { left: innerWidth * .3, width: innerWidth * .4, top: innerHeight * .25, height: 120 };
-      const s = now / 1000;
-      tx = r.left + r.width / 2 + Math.sin(s * .35) * r.width * .42;
-      ty = r.top + r.height / 2 + Math.sin(s * .7) * r.height * .35;
-    }
-    const k = reduceMotion ? 1 : 1 - Math.exp(-dt / .15);
-    x += (tx - x) * k; y += (ty - y) * k;
-    el.style.transform = `translate3d(${(x - size / 2).toFixed(1)}px, ${(y - size / 2).toFixed(1)}px, 0)`;
-  };
-  requestAnimationFrame(step);
-}
-
 function init() {
   document.documentElement.classList.toggle('lg-refract', chromium);
   // clear glass on controls; content-heavy cards stay frosted for legibility (as Apple does)
@@ -165,7 +126,6 @@ function init() {
   const scan = () => actions.querySelectorAll('.btn.glass').forEach((b) => glass(b, { rim: 16 }));
   new MutationObserver(scan).observe(actions, { childList: true });
   scan();
-  lens();
 }
 
 window.Glass = { init, glass };
