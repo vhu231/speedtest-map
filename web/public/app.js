@@ -52,6 +52,14 @@ const fmtMonth = (ts) => { const d = new Date(ts); return `${d.getFullYear()}.${
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isCompact = () => innerWidth <= 860;
 
+/* i18n (see i18n.js): translated text, error objects that re-translate, and display names for stable keys */
+const tr = (k, p) => I18N.t(k, p);
+const fail = (key, params) => Object.assign(new Error(tr(key, params)), { key, params });
+const msgOf = (e) => (e && e.key ? tr(e.key, e.params) : String((e && e.message) || e));
+const cityName = (c) => I18N.city(c);
+const typeName = (ty) => (ty === 'Ethernet' ? tr('ethernet') : ty === '' ? tr('unknown') : ty);
+const monthHead = (y, mo) => tr('monthHead', { y, m: mo + 1, M: I18N.month(mo) });
+
 const ICON = {
   share: '<svg viewBox="0 0 24 24"><path d="M12 15V3.5m0 0L8 7.5m4-4 4 4"/><path d="M8.5 11H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
@@ -70,16 +78,16 @@ const ICON = {
 /* ════════════════════════════════════════════════════════════
    Data: CSV → tests
    ════════════════════════════════════════════════════════════ */
-const TYPE_COLOR = { '5G': '#bf5af2', 'Wi-Fi': '#0a84ff', 'LTE': '#ff9f0a', '以太网': '#30d158', '3G': '#ff375f' };
+const TYPE_COLOR = { '5G': '#bf5af2', 'Wi-Fi': '#0a84ff', 'LTE': '#ff9f0a', 'Ethernet': '#30d158', '3G': '#ff375f' };
 const typeColor = (t) => TYPE_COLOR[t] || '#8e8e93';
 function normType(s) {
   const k = (s || '').toLowerCase().replace(/[\s_-]/g, '');
   if (k === 'fiveg' || k === '5g' || k === 'nr' || k === '5gsa' || k === '5gnsa') return '5G';
   if (k === 'wifi' || k === 'wlan') return 'Wi-Fi';
   if (k === 'lte' || k === '4g' || k === 'fourg') return 'LTE';
-  if (k === 'ethernet' || k === 'lan' || k === 'wired') return '以太网';
+  if (k === 'ethernet' || k === 'lan' || k === 'wired') return 'Ethernet';
   if (k === '3g' || k === 'threeg' || k === 'umts' || k === 'hspa') return '3G';
-  return (s || '').trim() || '未知';
+  return (s || '').trim();
 }
 
 function parseCSV(text) {
@@ -116,6 +124,7 @@ function parseWhen(d = '', t = '') {
 }
 
 function cityOf(lat, lon) {
+  // Returns a stable key (the zh-CN name in cities.js); I18N.city() translates it for display.
   // The Shenzhen–Hong Kong border is too tight for nearest-centre; use a rough boundary line.
   if (lat > 22.13 && lat < 22.6 && lon > 113.82 && lon < 114.5) {
     const b = lon <= 113.98 ? 22.47 : lon <= 114.22 ? 22.5 + ((lon - 113.98) / 0.24) * 0.045 : 22.5;
@@ -134,7 +143,7 @@ function cityOf(lat, lon) {
 
 function readDataset(text, name) {
   const rows = parseCSV(text.replace(/^﻿/, ''));
-  if (rows.length < 2) throw new Error('文件里没有测速记录');
+  if (rows.length < 2) throw fail('err.noRows');
   const h = rows[0].map((s) => s.trim().toLowerCase());
   const col = (...names) => { for (const n of names) { const i = h.findIndex((x) => x.startsWith(n)); if (i >= 0) return i; } return -1; };
   const ix = {
@@ -143,7 +152,7 @@ function readDataset(text, name) {
     dl: col('download speed', 'download (mbps)', 'download'), ul: col('upload speed', 'upload (mbps)', 'upload'),
     ping: col('latency', 'ping'), server: col('server name', 'server'),
   };
-  if (ix.lat < 0 || ix.lon < 0 || ix.dl < 0) throw new Error('没找到经纬度或下载速度这几列，这好像不是 Speedtest 导出的 CSV');
+  if (ix.lat < 0 || ix.lon < 0 || ix.dl < 0) throw fail('err.noCols');
 
   const tests = []; const cityCache = new Map(); let noPing = 0, noGeo = 0;
   for (let r = 1; r < rows.length; r++) {
@@ -164,7 +173,7 @@ function readDataset(text, name) {
       dl, ul: isFinite(ul) ? ul : null, ping, server: (c[ix.server] || '').trim(),
     });
   }
-  if (!tests.length) throw new Error('没有带坐标的测速记录，地图上没法显示');
+  if (!tests.length) throw fail('err.noGeo');
   tests.sort((a, b) => b.ts - a.ts);
 
   // Public copy for sharing: the same CSV minus anything that identifies the uploader's network.
@@ -187,10 +196,10 @@ function demoDataset() {
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
   const places = [
-    ['香港', 22.30, 114.17, 90, .06], ['深圳', 22.54, 114.05, 70, .07], ['广州', 23.12, 113.30, 50, .08],
-    ['上海', 31.22, 121.46, 40, .08], ['北京', 39.91, 116.41, 30, .09], ['东京', 35.68, 139.75, 45, .07],
-    ['台北', 25.04, 121.54, 25, .05], ['新加坡', 1.30, 103.84, 20, .05], ['旧金山', 37.77, -122.42, 12, .05],
-    ['伦敦', 51.51, -0.12, 10, .05], ['悉尼', -33.87, 151.2, 8, .05], ['成都', 30.66, 104.07, 18, .07],
+    ['Hong Kong', 22.30, 114.17, 90, .06], ['Shenzhen', 22.54, 114.05, 70, .07], ['Guangzhou', 23.12, 113.30, 50, .08],
+    ['Shanghai', 31.22, 121.46, 40, .08], ['Beijing', 39.91, 116.41, 30, .09], ['Tokyo', 35.68, 139.75, 45, .07],
+    ['Taipei', 25.04, 121.54, 25, .05], ['Singapore', 1.30, 103.84, 20, .05], ['San Francisco', 37.77, -122.42, 12, .05],
+    ['London', 51.51, -0.12, 10, .05], ['Sydney', -33.87, 151.2, 8, .05], ['Chengdu', 30.66, 104.07, 18, .07],
   ];
   const servers = { '5G': ['China Mobile 5G', 'CMHK', 'SoftBank 5G'], 'Wi-Fi': ['HKBN', 'IIJ', 'Singtel'], 'LTE': ['China Unicom', 'Docomo', 'Vodafone'] };
   const lines = ['Date,Time,Connection Type,Latitude,Longitude,Download Speed (Megabits per second),Upload Speed (Megabits per second),Latency (Milliseconds),Server Name'];
@@ -209,16 +218,16 @@ function demoDataset() {
       lines.push(`${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()},${pad(d.getHours())}:${pad(d.getMinutes())},${type === 'Wi-Fi' ? 'Wifi' : type === '5G' ? 'FiveG' : 'LTE'},${hla.toFixed(3)},${hlo.toFixed(3)},${dl.toFixed(2)},${ul.toFixed(2)},${Math.round(ping)},${srv}`);
     }
   }
-  return readDataset(lines.join('\n'), '示例数据');
+  return Object.assign(readDataset(lines.join('\n'), ''), { nameKey: 'demoName' });
 }
 
 /* ════════════════════════════════════════════════════════════
    Metrics & colour
    ════════════════════════════════════════════════════════════ */
 const METRICS = {
-  dl: { name: '下载', unit: 'Mbps', stops: [25, 100, 250, 500, 900], pill: ['#0a84ff', '#5e5ce6'] },
-  ul: { name: '上传', unit: 'Mbps', stops: [5, 20, 40, 80, 150], pill: ['#bf5af2', '#ff375f'] },
-  ping: { name: '延迟', unit: 'ms', stops: [15, 25, 40, 70, 120], invert: true, pill: ['#30d158', '#32ade6'] },
+  dl: { get name() { return tr('m.dl'); }, unit: 'Mbps', stops: [25, 100, 250, 500, 900], pill: ['#0a84ff', '#5e5ce6'] },
+  ul: { get name() { return tr('m.ul'); }, unit: 'Mbps', stops: [5, 20, 40, 80, 150], pill: ['#bf5af2', '#ff375f'] },
+  ping: { get name() { return tr('m.ping'); }, unit: 'ms', stops: [15, 25, 40, 70, 120], invert: true, pill: ['#30d158', '#32ade6'] },
 };
 const darkQ = matchMedia('(prefers-color-scheme: dark)');
 const ramp = () => (darkQ.matches ? ['#ff453a', '#ff9f0a', '#ffd60a', '#30d158', '#64d2ff'] : ['#ff3b30', '#ff9500', '#ffb800', '#34c759', '#007aff']);
@@ -354,10 +363,14 @@ function onStyle() {
   addDataLayers();
 }
 
-/* Prefer Chinese place names where OpenStreetMap has them. */
+/* Basemap labels follow the UI language (CARTO tiles only carry name:zh, so both Chinese variants use it). */
 function localizeLabels() {
-  const zh = ['coalesce', ['get', 'name:zh'], ['get', 'name_en'], ['get', 'name']];
-  for (const l of map.getStyle().layers) {
+  const zh = I18N.lang === 'en'
+    ? ['coalesce', ['get', 'name_en'], ['get', 'name']]
+    : ['coalesce', ['get', 'name:zh'], ['get', 'name_en'], ['get', 'name']];
+  const style = map && map.getStyle();
+  if (!style || !style.layers) return;
+  for (const l of style.layers) {
     if (l.type !== 'symbol' || !l.layout || !l.layout['text-field'] || l['source-layer'] === 'housenumber') continue;
     if (!JSON.stringify(l.layout['text-field']).includes('name')) continue;
     try { map.setLayoutProperty(l.id, 'text-field', zh); } catch {}
@@ -529,7 +542,7 @@ function paintMarker(m, p, coords) {
   const badge = m.el.querySelector('.pm-badge');
   badge.textContent = p.n > 999 ? '999+' : p.n;
   badge.hidden = p.n < 2;
-  m.el.setAttribute('aria-label', `${p.n} 次测试，${METRICS[S.metric].name} ${fmt(v)} ${METRICS[S.metric].unit}`);
+  m.el.setAttribute('aria-label', tr('markerAria', { n: p.n, metric: METRICS[S.metric].name, v: fmt(v), unit: METRICS[S.metric].unit }));
 }
 
 async function leavesOf(m) {
@@ -542,8 +555,8 @@ async function leavesOf(m) {
 const placeNames = (spots) => {
   const c = new Map();
   for (const s of spots) c.set(s.city, (c.get(s.city) || 0) + s.st.n);
-  const names = [...c.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0]);
-  return names.slice(0, 3).join(' · ') + (names.length > 3 ? ' 等' : '');
+  const names = [...c.entries()].sort((a, b) => b[1] - a[1]).map((x) => cityName(x[0]));
+  return names.slice(0, 3).join(' · ') + (names.length > 3 ? tr('andMore') : '');
 };
 
 /* hover & click */
@@ -555,15 +568,15 @@ async function showMarkerTip(m) {
   const render = (title) => {
     if (token !== tipToken) return;
     tip.innerHTML = `<b>${esc(title)}</b>
-      <div class="row"><span>测试</span><span>${p.n} 次</span></div>
-      <div class="row"><span>下载</span><span>${fmt(featureValue(p, 'dl'))} Mbps</span></div>
-      <div class="row"><span>上传</span><span>${fmt(featureValue(p, 'ul'))} Mbps</span></div>
-      <div class="row"><span>延迟</span><span>${fmt(featureValue(p, 'ping'))} ms</span></div>`;
+      <div class="row"><span>${tr('tipTests')}</span><span>${tr('tipN', { n: p.n })}</span></div>
+      <div class="row"><span>${METRICS.dl.name}</span><span>${fmt(featureValue(p, 'dl'))} Mbps</span></div>
+      <div class="row"><span>${METRICS.ul.name}</span><span>${fmt(featureValue(p, 'ul'))} Mbps</span></div>
+      <div class="row"><span>${METRICS.ping.name}</span><span>${fmt(featureValue(p, 'ping'))} ms</span></div>`;
     tip.hidden = false;
     const pt = map.project(m.coords), r = m.el.getBoundingClientRect();
     placeTip({ x: r.right - 6, y: pt.y - r.height + 8 });
   };
-  render(p.cluster ? `${p.point_count} 个地点` : (S.spotByKey.get(p.k)?.city || ''));
+  render(p.cluster ? tr('nPlaces', { n: p.point_count }) : cityName(S.spotByKey.get(p.k)?.city || ''));
   if (p.cluster) render(placeNames(await leavesOf(m)));
 }
 function placeTip(pt) {
@@ -584,7 +597,7 @@ async function onMarkerClick(m) {
   const tests = spots.flatMap((s) => s.tests).sort((a, b) => b.ts - a.ts);
   const single = spots.length === 1 ? spots[0] : null;
   openDetail({
-    title: single ? single.city : placeNames(spots),
+    ...(single ? { city: single.city } : { spots }),
     tests, center: m.coords,
   });
   if (single) map.easeTo({ center: m.coords, duration: 900, easing: easeOutExpo, padding: camPadding() });
@@ -788,7 +801,7 @@ function countUp(el, to, digits) {
 
 function renderPanel() {
   const M = METRICS[S.metric], st = stats(S.tests);
-  $('#heroLabel').textContent = `${M.name}中位数`;
+  $('#heroLabel').textContent = tr(`median.${S.metric}`);
   $('#heroUnit').textContent = M.unit;
   countUp($('#heroVal'), st[S.metric]);
 
@@ -796,9 +809,9 @@ function renderPanel() {
   const kp = $('#kpis');
   if (!kp.children.length) kp.innerHTML = '<div><b><span class="num"></span><small></small></b><span></span></div>'.repeat(4);
   const tiles = [
-    ...others.map((k) => ({ v: st[k], unit: METRICS[k].unit, label: `${METRICS[k].name}中位数` })),
-    { v: st.n, unit: '次', label: '测试', int: true },
-    { v: S.spots.length, unit: '处', label: '地点', int: true },
+    ...others.map((k) => ({ v: st[k], unit: METRICS[k].unit, label: tr(`median.${k}`) })),
+    { v: st.n, unit: tr('kpi.testsUnit'), label: tr('kpi.tests'), int: true },
+    { v: S.spots.length, unit: tr('kpi.placesUnit'), label: tr('kpi.places'), int: true },
   ];
   tiles.forEach((t, i) => {
     const d = kp.children[i], b = d.firstChild;
@@ -818,7 +831,7 @@ function renderPanel() {
     const v = r.st[S.metric];
     const p = M.invert ? (v ? Math.max(6, (Math.min(...rows.map((x) => x.st.ping || Infinity)) / v) * 100) : 0) : ((v || 0) / max) * 100;
     return `<div class="bar-row" style="--c:${typeColor(r.ty)};opacity:${r.on ? 1 : .4}">
-      <span class="lbl"><i></i>${esc(r.ty)}<small>${r.st.n} 次</small></span>
+      <span class="lbl"><i></i>${esc(typeName(r.ty))}<small>${tr('nTimes', { n: r.st.n })}</small></span>
       <span class="val">${fmt(v)}<small>${M.unit}</small></span>
       <span class="track"><i style="--p:0%" data-p="${p.toFixed(1)}%"></i></span>
       <span class="sub">↓ ${fmt(r.st.dl)} · ↑ ${fmt(r.st.ul)} Mbps · ${fmt(r.st.ping)} ms</span>
@@ -848,11 +861,11 @@ function renderCities() {
     const p = M.invert ? (c.v ? (vmin / c.v) * 100 : 0) : ((c.v || 0) / vmax) * 100;
     return `<li><button type="button" class="city" data-city="${esc(c.name)}">
       <span class="rk">${i + 1}</span>
-      <span class="nm">${esc(c.name)}<small>${c.n} 次</small></span>
+      <span class="nm">${esc(cityName(c.name))}<small>${tr('nTimes', { n: c.n })}</small></span>
       <span class="v">${fmt(c.v)}</span>
       <span class="mini"><i style="--p:${p.toFixed(1)}%;--c:${colorFor(S.metric, c.v)}"></i></span>
     </button></li>`;
-  }).join('') + (list.length > 8 ? `<li><button type="button" class="more" id="moreCities">${S.citiesAll ? '收起' : `显示全部 ${list.length} 个`}</button></li>` : '');
+  }).join('') + (list.length > 8 ? `<li><button type="button" class="more" id="moreCities">${S.citiesAll ? tr('showLess') : tr('showAllN', { n: list.length })}</button></li>` : '');
   el._list = list;
 }
 
@@ -865,23 +878,23 @@ function renderChips() {
   const tc = new Map(), yc = new Map();
   for (const t of S.ds.tests) { tc.set(t.type, (tc.get(t.type) || 0) + 1); yc.set(t.year, (yc.get(t.year) || 0) + 1); }
   $('#types').innerHTML = typeList().map((ty) =>
-    `<button type="button" class="chip" data-type="${esc(ty)}" aria-pressed="${S.types.has(ty)}" style="--c:${typeColor(ty)}"><i></i>${esc(ty)}<small>${tc.get(ty)}</small></button>`).join('');
+    `<button type="button" class="chip" data-type="${esc(ty)}" aria-pressed="${S.types.has(ty)}" style="--c:${typeColor(ty)}"><i></i>${esc(typeName(ty))}<small>${tc.get(ty)}</small></button>`).join('');
   $('#years').innerHTML = [...yc.keys()].sort().map((y) =>
-    `<button type="button" class="chip" data-year="${y}" aria-pressed="${S.years.has(y)}">${y || '未知'}<small>${yc.get(y)}</small></button>`).join('');
+    `<button type="button" class="chip" data-year="${y}" aria-pressed="${S.years.has(y)}">${y || tr('unknown')}<small>${yc.get(y)}</small></button>`).join('');
 }
 function renderFoot() {
-  const bits = ['城市按坐标就近归类，深港交界一带可能不准。'];
-  if (S.ds.noPing) bits.push(`${S.ds.noPing} 条记录没有延迟数据，统计延迟时已跳过。`);
-  if (S.ds.noGeo) bits.push(`${S.ds.noGeo} 条记录没有坐标，没画在地图上。`);
-  if (S.mode === 'shared') bits.push('分享的数据不含 IP 地址。');
-  $('#foot').textContent = bits.join('');
+  const bits = [tr('foot.city')];
+  if (S.ds.noPing) bits.push(tr('foot.noPing', { n: S.ds.noPing }));
+  if (S.ds.noGeo) bits.push(tr('foot.noGeo', { n: S.ds.noGeo }));
+  if (S.mode === 'shared') bits.push(tr('foot.shared'));
+  $('#foot').textContent = bits.join(tr('sentenceGap'));
 }
 
 function renderLegend() {
   const M = METRICS[S.metric], st = colorStops(S.metric);
   const lo = st[0][0], hi = st[st.length - 1][0];
   const grad = st.map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(', ');
-  $('#legend').innerHTML = `<b>${M.name}（${M.unit}）· 角标是测试次数</b>
+  $('#legend').innerHTML = `<b>${esc(tr('legend', { m: M.name, unit: M.unit }))}</b>
     <div class="ramp" style="--ramp:linear-gradient(90deg, ${grad})"></div>
     <div class="ticks">${st.map(([v], i) => `<span>${i === 0 ? '≤' : i === st.length - 1 ? '≥' : ''}${v}</span>`).join('')}</div>`;
 }
@@ -908,13 +921,14 @@ function setMetric(m) {
 function renderActions() {
   const a = $('#actions');
   const btn = (id, cls, icon, label) => `<button type="button" class="btn ${cls}" id="${id}">${icon}<span class="lbl">${label}</span></button>`;
-  if (S.mode === 'local') a.innerHTML = btn('actNew', 'glass', ICON.plus, '新文件') + btn('actShare', 'primary', ICON.share, '分享');
-  else if (S.mode === 'demo') a.innerHTML = btn('actNew', 'primary', ICON.plus, '用我自己的数据');
-  else if (S.owner) a.innerHTML = btn('actDelete', 'glass', ICON.trash, '停止分享') + btn('actCopy', 'primary', ICON.link, '拷贝链接');
-  else a.innerHTML = btn('actCopy', 'glass', ICON.link, '拷贝链接') + btn('actNew', 'primary', ICON.plus, '做一张我自己的');
+  if (S.mode === 'local') a.innerHTML = btn('actNew', 'glass', ICON.plus, tr('act.new')) + btn('actShare', 'primary', ICON.share, tr('act.share'));
+  else if (S.mode === 'demo') a.innerHTML = btn('actNew', 'primary', ICON.plus, tr('act.useMine'));
+  else if (S.owner) a.innerHTML = btn('actDelete', 'glass', ICON.trash, tr('act.stop')) + btn('actCopy', 'primary', ICON.link, tr('act.copy'));
+  else a.innerHTML = btn('actCopy', 'glass', ICON.link, tr('act.copy')) + btn('actNew', 'primary', ICON.plus, tr('act.makeMine'));
 }
 
-/* Detail card */
+/* Detail card — a group names one city key ({ city }) or a set of spots ({ spots }) */
+const groupTitle = (g) => (g.spots ? placeNames(g.spots) : cityName(g.city));
 function openDetail(group) {
   S.sel = group;
   renderDetail(group);
@@ -959,21 +973,21 @@ function renderDetail(group) {
   let lastMonth = '';
   const grid = tests.slice(0, cap).map((t, i) => {
     const d = t.ts ? new Date(t.ts) : null;
-    const mk = d ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月` : '时间未知';
+    const mk = d ? monthHead(d.getFullYear(), d.getMonth()) : tr('noTime');
     const head = mk !== lastMonth ? `<h4 class="mh">${mk}</h4>` : '';
     lastMonth = mk;
     const v = metricOf(t, S.metric);
-    const info = `${d ? fmtWhen(t.ts) : '时间未知'} · ${t.type} · ↓${fmt(t.dl)} ↑${fmt(t.ul)} Mbps · ${t.ping != null ? fmt(t.ping) + ' ms' : '无延迟'} · ${t.server || '未知节点'} · ${t.city}`;
+    const info = `${d ? fmtWhen(t.ts) : tr('noTime')} · ${typeName(t.type)} · ↓${fmt(t.dl)} ↑${fmt(t.ul)} Mbps · ${t.ping != null ? fmt(t.ping) + ' ms' : tr('noPing')} · ${t.server || tr('noServer')} · ${cityName(t.city)}`;
     return head + `<div class="tile" style="--c:${colorFor(S.metric, v)};--tc:${typeColor(t.type)};--i:${Math.min(i, 30)}" title="${esc(info)}">
-      <span class="tt"><i></i>${esc(t.type)}<em>${d ? `${d.getDate()} 日` : ''}</em></span>
+      <span class="tt"><i></i>${esc(typeName(t.type))}<em>${d ? tr('day', { d: d.getDate() }) : ''}</em></span>
       <b class="num">${fmt(v)}</b>
       <span class="tm">${M.unit}${d ? ` · ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''}</span>
     </div>`;
   }).join('');
   $('#detail').innerHTML = `
     <header>
-      <div><h3>${esc(group.title)}</h3><p>${tests.length} 次测试${nSpots > 1 ? ` · ${nSpots} 个地点` : ''}${range ? ` · ${range}` : ''}</p></div>
-      <button type="button" class="close" id="closeDetail" aria-label="关闭">${ICON.close}</button>
+      <div><h3>${esc(groupTitle(group))}</h3><p>${tr('nTests', { n: tests.length })}${nSpots > 1 ? ` · ${tr('nPlaces', { n: nSpots })}` : ''}${range ? ` · ${range}` : ''}</p></div>
+      <button type="button" class="close" id="closeDetail" aria-label="${esc(tr('close'))}">${ICON.close}</button>
     </header>
     <div class="dkpis">
       ${['dl', 'ul', 'ping'].map((k) => `<div><b style="color:${k === S.metric ? colorFor(k, st[k]) : 'inherit'}">${fmt(st[k])}</b><span>${METRICS[k].name} ${METRICS[k].unit}</span></div>`).join('')}
@@ -981,7 +995,7 @@ function renderDetail(group) {
     ${spark}
     <div class="tests grid">
       ${grid}
-      ${tests.length > cap ? `<p class="foot more-note">还有 ${tests.length - cap} 条，放大地图查看具体地点</p>` : ''}
+      ${tests.length > cap ? `<p class="foot more-note">${esc(tr('moreNote', { n: tests.length - cap }))}</p>` : ''}
     </div>`;
 }
 
@@ -1014,28 +1028,28 @@ function renderTimeline() {
     const days = Math.round((dayStart(g.to) - dayStart(g.from)) / DAY) + 1;
     list += `<li><button type="button" class="stay" data-seg="${i}" style="--c:${colorFor(S.metric, v)};--i:${Math.min(i, 24)}">
       <span class="node"></span>
-      <span class="st-main"><b>${esc(g.city)}</b><span>${fmtMD(g.from)}${days > 1 ? ` – ${fmtMD(g.to)} · ${days} 天` : ''} · ${g.tests.length} 次</span></span>
+      <span class="st-main"><b>${esc(cityName(g.city))}</b><span>${fmtMD(g.from)}${days > 1 ? ` – ${fmtMD(g.to)} · ${tr('nDays', { n: days })}` : ''} · ${tr('nTimes', { n: g.tests.length })}</span></span>
       <span class="st-v num">${fmt(v)}<small>${M.unit}</small></span>
     </button></li>`;
   });
 
   $('#tl').innerHTML = `
     <div class="tl-head">
-      <button type="button" class="tl-nav" data-dy="-1" ${yi <= 0 ? 'disabled' : ''} aria-label="上一年">‹</button>
-      <div class="tl-title"><b class="num">${y} 年${mo != null ? ` ${mo + 1} 月` : ''}</b>
-        <span>${S.tests.length} 次测试 · ${cities} 座城市${dist >= 1 ? ` · 移动约 ${fmtKm(dist)}` : ''}</span></div>
-      <button type="button" class="tl-nav" data-dy="1" ${yi >= years.length - 1 ? 'disabled' : ''} aria-label="下一年">›</button>
+      <button type="button" class="tl-nav" data-dy="-1" ${yi <= 0 ? 'disabled' : ''} aria-label="${esc(tr('prevYear'))}">‹</button>
+      <div class="tl-title"><b class="num">${mo != null ? monthHead(y, mo) : tr('yearHead', { y })}</b>
+        <span>${tr('nTests', { n: S.tests.length })} · ${tr('nCities', { n: cities })}${dist >= 1 ? ` · ${tr('moved', { d: fmtKm(dist) })}` : ''}</span></div>
+      <button type="button" class="tl-nav" data-dy="1" ${yi >= years.length - 1 ? 'disabled' : ''} aria-label="${esc(tr('nextYear'))}">›</button>
     </div>
-    <div class="months" role="group" aria-label="按月份筛选">${months.map((c, i) =>
-      `<button type="button" data-mo="${i}" aria-pressed="${mo === i}" ${c ? '' : 'disabled'} title="${i + 1} 月 · ${c} 次"><i style="--h:${((c / mmax) * 100).toFixed(0)}%"></i><span>${i + 1}</span></button>`).join('')}</div>
+    <div class="months" role="group" aria-label="${esc(tr('monthsAria'))}">${months.map((c, i) =>
+      `<button type="button" data-mo="${i}" aria-pressed="${mo === i}" ${c ? '' : 'disabled'} title="${esc(tr('monthTip', { m: i + 1, M: I18N.month(i), n: c }))}"><i style="--h:${((c / mmax) * 100).toFixed(0)}%"></i><span>${i + 1}</span></button>`).join('')}</div>
     <button type="button" class="btn play-btn" id="playBtn" ${segs.length ? '' : 'disabled'}></button>
-    <ol class="stays">${list || '<li class="empty">这段时间没有带时间的测速记录</li>'}</ol>`;
+    <ol class="stays">${list || `<li class="empty">${esc(tr('tlEmpty'))}</li>`}</ol>`;
   updatePlayBtn();
 }
 function updatePlayBtn() {
   const b = $('#playBtn'); if (!b) return;
   b.classList.toggle('on', !!S.playing);
-  b.innerHTML = S.playing ? `${ICON.stop}停止回放` : `${ICON.play}回放${S.tl.month != null ? '这个月' : '这一年'}`;
+  b.innerHTML = S.playing ? `${ICON.stop}${esc(tr('stopPlay'))}` : `${ICON.play}${esc(tr(S.tl.month != null ? 'playMonth' : 'playYear'))}`;
 }
 function markStay(i) {
   document.querySelectorAll('#tl .stay').forEach((b) => b.classList.toggle('on', +b.dataset.seg === i));
@@ -1048,7 +1062,7 @@ function positionTabs() {
 }
 function setTab(tab) {
   if (tab === S.tab) return;
-  if (tab === 'timeline' && !tlYears().length) { toast('这份数据没有时间信息'); return; }
+  if (tab === 'timeline' && !tlYears().length) { toast(tr('noTimeData')); return; }
   stopPlay(); closeDetail();
   S.tab = tab;
   document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === tab));
@@ -1093,7 +1107,8 @@ async function startPlay() {
     if (token !== playToken) return;
     const g = segs[i];
     $('#pcDate').textContent = fmtDate(g.from) + (dayStart(g.to) > dayStart(g.from) ? ` – ${fmtMD(g.to)}` : '');
-    $('#pcCity').textContent = g.city;
+    S.playSeg = i;
+    $('#pcCity').textContent = cityName(g.city);
     chip.classList.remove('tick'); void chip.offsetWidth; chip.classList.add('tick');
     markStay(i);
     const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null;
@@ -1134,16 +1149,11 @@ function enterDash(ds, opts) {
   $('#panel').classList.remove('expanded');
   $('#heroVal')._v = 0;
 
-  const sum = summarize(ds);
-  $('#dashTitle').textContent = ds.name || '测速地图';
-  const when = sum.from ? (fmtMonth(sum.from) === fmtMonth(sum.to) ? fmtMonth(sum.from) : `${fmtMonth(sum.from)} – ${fmtMonth(sum.to)}`) : '';
-  $('#dashSub').textContent = [S.mode === 'shared' ? '共享' : S.mode === 'demo' ? '示例' : '仅本机', when].filter(Boolean).join(' · ');
-  document.title = `${ds.name || '测速地图'} · 测速地图`;
-
   renderActions(); renderLegend();
   setDotScale(0);
   refilter();
   S.view = 'dash'; body.dataset.view = 'dash';
+  renderHead();
   setInteractive(true);
   $('#dash').setAttribute('aria-hidden', 'false');
   requestAnimationFrame(() => { positionPill(); positionTabs(); });
@@ -1157,13 +1167,24 @@ function enterDash(ds, opts) {
   }
 }
 
+const dsName = (ds) => (ds.nameKey ? tr(ds.nameKey) : ds.name || tr('app'));
+/* Title bar, subtitle and document title — derived from state so they can follow the language. */
+function renderHead() {
+  if (S.view !== 'dash' || !S.ds) { document.title = tr('app'); return; }
+  const ds = S.ds, sum = summarize(ds);
+  $('#dashTitle').textContent = dsName(ds);
+  const when = sum.from ? (fmtMonth(sum.from) === fmtMonth(sum.to) ? fmtMonth(sum.from) : `${fmtMonth(sum.from)} – ${fmtMonth(sum.to)}`) : '';
+  $('#dashSub').textContent = [tr(`mode.${S.mode}`), when].filter(Boolean).join(' · ');
+  document.title = `${dsName(ds)} · ${tr('app')}`;
+}
+
 function exitDash() {
   if (S.view !== 'dash') return;
   S.view = 'landing'; body.dataset.view = 'landing';
   setInteractive(false);
   $('#dash').setAttribute('aria-hidden', 'true');
   stopPlay(); closeDetail(); hideTip(); clearRoute(); clearMarkers();
-  document.title = '测速地图';
+  renderHead();
   resetLanding();
   if (map) {
     animateDots(0, 0, 500);
@@ -1183,9 +1204,11 @@ function resetLanding() {
    Sheet
    ════════════════════════════════════════════════════════════ */
 const sheet = $('#sheet'), scrim = $('#scrim'), sheetBody = $('#sheetBody');
-let sheetLocked = false;
-function openSheet(html, { busy = false } = {}) {
-  sheetBody.innerHTML = html;
+let sheetLocked = false, sheetRender = null;
+/* render returns the sheet's HTML; it is kept so an open sheet can be redrawn in another language */
+function openSheet(render, { busy = false } = {}) {
+  sheetRender = render;
+  sheetBody.innerHTML = render();
   sheet.classList.toggle('busy', busy);
   sheetLocked = busy;
   if (sheet.hidden) {
@@ -1205,34 +1228,34 @@ function closeSheet() {
 function showChoice(ds) {
   const s = summarize(ds);
   const when = s.from ? `${new Date(s.from).getFullYear()} – ${new Date(s.to).getFullYear()}` : '–';
-  openSheet(`
+  openSheet(() => `
     <div class="file-row">
       <span class="file-ico">CSV</span>
-      <div><h3 id="sheetTitle">${esc(ds.name)}</h3><p>${(ds.bytes / 1024).toFixed(0)} KB · 已在本机解析</p></div>
+      <div><h3 id="sheetTitle">${esc(ds.name)}</h3><p>${esc(tr('parsedLocally', { kb: (ds.bytes / 1024).toFixed(0) }))}</p></div>
     </div>
     <div class="stat-strip">
-      <div><b class="num">${s.n.toLocaleString('en-US')}</b><span>次测试</span></div>
-      <div><b class="num">${s.spots}</b><span>个地点</span></div>
-      <div><b class="num" style="font-size:${when.length > 6 ? 19 : 24}px">${when}</b><span>时间跨度</span></div>
+      <div><b class="num">${s.n.toLocaleString('en-US')}</b><span>${tr('statTests', { n: s.n })}</span></div>
+      <div><b class="num">${s.spots}</b><span>${tr('statPlaces', { n: s.spots })}</span></div>
+      <div><b class="num" style="font-size:${when.length > 6 ? 19 : 24}px">${when}</b><span>${tr('statSpan')}</span></div>
     </div>
-    <h4>接下来想怎么看？</h4>
+    <h4>${tr('nextQ')}</h4>
     <div class="choices">
       <button type="button" class="choice local" id="goLocal" data-autofocus>
-        <span class="ci">${ICON.laptop}</span><b>在本机查看</b><span>数据只留在这台设备上，不会上传到任何地方。</span>
+        <span class="ci">${ICON.laptop}</span><b>${tr('localTitle')}</b><span>${tr('localDesc')}</span>
       </button>
       <button type="button" class="choice share" id="goShare">
-        <span class="ci">${ICON.link}</span><b>生成分享链接</b><span>上传到云端，拿到链接的人都能看。IP 地址会先移除。</span>
+        <span class="ci">${ICON.link}</span><b>${tr('shareTitle')}</b><span>${tr('shareDesc')}</span>
       </button>
     </div>
-    <button type="button" class="cancel" id="sheetCancel">换一个文件</button>`);
+    <button type="button" class="cancel" id="sheetCancel" data-pick>${tr('pickAnother')}</button>`);
 }
 
 async function doShare(ds) {
-  if (ds.publicCSV.length > 5 * 1024 * 1024) { showError('文件超过 5 MB，没法分享。可以先在本机查看。', ds); return; }
-  openSheet(`
+  if (ds.publicCSV.length > 5 * 1024 * 1024) { showError(fail('err.shareTooBig'), ds); return; }
+  openSheet(() => `
     <div class="center">
-      <h3 class="t" id="sheetTitle">正在生成链接…</h3>
-      <p class="s">正在把去掉 IP 的 CSV 上传到云端</p>
+      <h3 class="t" id="sheetTitle">${tr('sharingTitle')}</h3>
+      <p class="s">${tr('sharingSub')}</p>
       <div class="progress"><i></i></div>
     </div>`, { busy: true });
   try {
@@ -1245,11 +1268,12 @@ async function doShare(ds) {
       sleep(reduceMotion ? 0 : 1100),
     ]);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `上传失败（${res.status}）`);
+    // The worker's error text is Chinese only; show our own message per status instead.
+    if (!res.ok) throw res.status === 400 ? fail('err.notCsv') : res.status === 413 ? fail('err.tooBig') : fail('err.upload', { s: res.status });
     saveOwner(data.id, data.deleteToken);
     showDone(ds, data.id);
   } catch (e) {
-    showError(e.message === 'Failed to fetch' ? '连不上服务器，检查一下网络再试' : e.message, ds);
+    showError(e.message === 'Failed to fetch' ? fail('err.offline') : e, ds);
   }
 }
 
@@ -1258,29 +1282,29 @@ function shareUrl(id) { return `${location.origin}/s/${id}`; }
 function showDone(ds, id) {
   const url = shareUrl(id);
   const inDash = S.view === 'dash';
-  openSheet(`
+  openSheet(() => `
     <div class="center">
       <svg class="big-ico check" viewBox="0 0 76 76" aria-hidden="true"><circle cx="38" cy="38" r="34"/><path d="M24 39.5l9.5 9.5L53 28"/></svg>
-      <h3 class="t" id="sheetTitle">链接已生成</h3>
-      <p class="s">任何拿到链接的人都能看到这张地图。你可以随时在地图页停止分享。</p>
+      <h3 class="t" id="sheetTitle">${tr('doneTitle')}</h3>
+      <p class="s">${tr('doneSub')}</p>
     </div>
-    <div class="link-field"><input id="shareUrl" value="${esc(url)}" readonly aria-label="分享链接"><button type="button" class="btn primary" id="copyUrl" data-autofocus>${ICON.copy}拷贝</button></div>
+    <div class="link-field"><input id="shareUrl" value="${esc(url)}" readonly aria-label="${esc(tr('shareLink'))}"><button type="button" class="btn primary" id="copyUrl" data-autofocus>${ICON.copy}${tr('copy')}</button></div>
     <div class="btn-row">
-      ${navigator.share ? `<button type="button" class="btn tonal" id="nativeShare">${ICON.share}共享…</button>` : ''}
-      <button type="button" class="btn tonal" id="openShared">${ICON.map}${inDash ? '完成' : '打开地图'}</button>
+      ${navigator.share ? `<button type="button" class="btn tonal" id="nativeShare">${ICON.share}${tr('nativeShare')}</button>` : ''}
+      <button type="button" class="btn tonal" id="openShared">${ICON.map}${tr(inDash ? 'done' : 'openMap')}</button>
     </div>`);
   sheet._done = { ds, id };
 }
 
-function showError(msg, ds) {
-  openSheet(`
+function showError(err, ds) {
+  openSheet(() => `
     <div class="center">
-      <h3 class="t" id="sheetTitle">出了点问题</h3>
-      <p class="s">${esc(msg)}</p>
+      <h3 class="t" id="sheetTitle">${tr('errTitle')}</h3>
+      <p class="s">${esc(msgOf(err))}</p>
     </div>
     <div class="btn-row">
-      ${ds && S.view !== 'dash' ? '<button type="button" class="btn tonal" id="goLocal">在本机查看</button>' : ''}
-      ${ds ? '<button type="button" class="btn primary" id="retryShare" data-autofocus>再试一次</button>' : '<button type="button" class="btn primary" id="sheetCancel" data-autofocus>好</button>'}
+      ${ds && S.view !== 'dash' ? `<button type="button" class="btn tonal" id="goLocal">${tr('localTitle')}</button>` : ''}
+      ${ds ? `<button type="button" class="btn primary" id="retryShare" data-autofocus>${tr('retry')}</button>` : `<button type="button" class="btn primary" id="sheetCancel" data-autofocus>${tr('ok')}</button>`}
     </div>`);
 }
 
@@ -1298,10 +1322,10 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
 }
 async function copy(text) {
-  try { await navigator.clipboard.writeText(text); toast('已拷贝链接'); }
+  try { await navigator.clipboard.writeText(text); toast(tr('copied')); }
   catch {
     const i = document.createElement('input'); i.value = text; document.body.append(i); i.select();
-    try { document.execCommand('copy'); toast('已拷贝链接'); } catch { toast('拷贝失败，请手动选择'); }
+    try { document.execCommand('copy'); toast(tr('copied')); } catch { toast(tr('copyFail')); }
     i.remove();
   }
 }
@@ -1311,15 +1335,15 @@ async function copy(text) {
    ════════════════════════════════════════════════════════════ */
 async function handleFile(file) {
   if (!file) return;
-  if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') { toast('请选择 .csv 文件'); return; }
-  if (file.size > 50 * 1024 * 1024) { toast('文件太大了'); return; }
+  if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') { toast(tr('pickCsv')); return; }
+  if (file.size > 50 * 1024 * 1024) { toast(tr('fileTooBig')); return; }
   try {
     const text = await file.text();
     const ds = readDataset(text, file.name);
     S.pending = ds;
     showChoice(ds);
   } catch (e) {
-    showError(e.message || '读不了这个文件');
+    showError(e && (e.key || e.message) ? e : fail('err.unreadable'));
   }
 }
 
@@ -1328,25 +1352,29 @@ async function handleFile(file) {
    ════════════════════════════════════════════════════════════ */
 const shareIdFromPath = () => (location.pathname.match(/^\/s\/([A-Za-z0-9]{6,32})\/?$/) || [])[1];
 
+let loadErr = null;
+const renderLoading = () => { $('#loadingText').textContent = loadErr ? msgOf(loadErr) : tr('loadingShared'); };
 async function loadShared(id) {
   const l = $('#landing');
   l.classList.add('is-loading'); $('#loading').hidden = false;
-  $('#loadingText').textContent = '正在载入共享的测速地图…';
+  loadErr = null; renderLoading();
   $('#loading').querySelector('.spinner').hidden = false;
   $('#loading').querySelectorAll('.btn').forEach((b) => b.remove());
   try {
     const [res] = await Promise.all([fetch(`/api/share/${id}`), sleep(reduceMotion ? 0 : 900)]);
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `载入失败（${res.status}）`); }
+    if (!res.ok) throw res.status === 404 ? fail('err.notFound') : fail('err.load', { s: res.status });
     const text = await res.text();
-    let name = '共享的测速地图';
-    try { name = decodeURIComponent(res.headers.get('X-Share-Name') || '') || name; } catch {}
+    let name = '';
+    try { name = decodeURIComponent(res.headers.get('X-Share-Name') || ''); } catch {}
     const ds = readDataset(text, name);
+    if (!ds.name) ds.nameKey = 'sharedName';
     enterDash(ds, { mode: 'shared', id, owner: !!owners()[id], created: res.headers.get('X-Share-Created') });
   } catch (e) {
-    $('#loadingText').textContent = e.message === 'Failed to fetch' ? '连不上服务器' : e.message;
+    loadErr = e.message === 'Failed to fetch' ? fail('err.offlineShort') : e;
+    renderLoading();
     $('#loading').querySelector('.spinner').hidden = true;
     const b = document.createElement('button');
-    b.className = 'btn primary'; b.textContent = '去首页上传自己的 CSV';
+    b.className = 'btn primary'; b.dataset.i18n = 'toHome'; b.textContent = tr('toHome');
     b.onclick = () => { history.pushState({}, '', '/'); resetLanding(); };
     $('#loading').append(b);
   }
@@ -1364,21 +1392,21 @@ function route() {
    ════════════════════════════════════════════════════════════ */
 $('#file').addEventListener('change', (e) => handleFile(e.target.files[0]));
 function showHelp() {
-  openSheet(`
-    <h3 class="t" id="sheetTitle">怎么导出 CSV？</h3>
+  openSheet(() => `
+    <h3 class="t" id="sheetTitle">${tr('helpBtn')}</h3>
     <ol class="steps">
-      <li><span>打开 <a href="https://www.speedtest.net/en/results" target="_blank" rel="noopener">speedtest.net/en/results</a> 并登录你的 Speedtest 账户。</span></li>
-      <li><span>在「结果历史记录」右上角点 <kbd>Export Results</kbd>，浏览器会下载一个 CSV 文件。</span></li>
-      <li><span>把这个 CSV 拖进本页，或点上传框选择它。</span></li>
+      <li><span>${tr('help.1', { link: '<a href="https://www.speedtest.net/en/results" target="_blank" rel="noopener">speedtest.net/en/results</a>' })}</span></li>
+      <li><span>${tr('help.2', { kbd: '<kbd>Export Results</kbd>' })}</span></li>
+      <li><span>${tr('help.3')}</span></li>
     </ol>
-    <h4 class="sub">数据与隐私</h4>
+    <h4 class="sub">${tr('privacy')}</h4>
     <ul class="privacy">
-      <li>选「在本机查看」时，CSV 只在你的浏览器里解析，不会上传。</li>
-      <li>选「生成分享链接」时，会先删除内网和外网 IP 两列，再把剩下的内容存到 Cloudflare R2；拿到链接的人都能看到。</li>
-      <li>在同一个浏览器里可以随时「停止分享」，链接立即失效，云端数据一并删除。</li>
-      <li>源代码以 MIT 许可在 <a href="https://github.com/vhu231/speedtest-map" target="_blank" rel="noopener">GitHub</a> 公开。</li>
+      <li>${tr('priv.1')}</li>
+      <li>${tr('priv.2')}</li>
+      <li>${tr('priv.3')}</li>
+      <li>${tr('priv.4', { gh: '<a href="https://github.com/vhu231/speedtest-map" target="_blank" rel="noopener">GitHub</a>' })}</li>
     </ul>
-    <div class="btn-row"><button type="button" class="btn primary" id="sheetCancel" data-autofocus>知道了</button></div>`);
+    <div class="btn-row"><button type="button" class="btn primary" id="sheetCancel" data-autofocus>${tr('gotIt')}</button></div>`);
 }
 $('#help').addEventListener('click', showHelp);
 $('#privacy').addEventListener('click', showHelp);
@@ -1410,19 +1438,18 @@ sheetBody.addEventListener('click', (e) => {
     case 'goShare': case 'retryShare': doShare(ds); break;
     case 'sheetCancel':
       closeSheet();
-      if (S.view === 'landing') { $('#file').value = ''; if (b.textContent.includes('换')) setTimeout(() => $('#file').click(), 350); }
+      if (S.view === 'landing') { $('#file').value = ''; if (b.hasAttribute('data-pick')) setTimeout(() => $('#file').click(), 350); }
       break;
     case 'copyUrl': copy($('#shareUrl').value); break;
     case 'nativeShare':
-      navigator.share({ title: `${sheet._done.ds.name} · 测速地图`, url: shareUrl(sheet._done.id) }).catch(() => {});
+      navigator.share({ title: `${dsName(sheet._done.ds)} · ${tr('app')}`, url: shareUrl(sheet._done.id) }).catch(() => {});
       break;
     case 'openShared': {
       const { ds: d, id } = sheet._done;
       closeSheet(); history.pushState({}, '', `/s/${id}`);
       if (S.view === 'dash' && S.ds === d) {
         S.mode = 'shared'; S.shareId = id; S.owner = true;
-        $('#dashSub').textContent = $('#dashSub').textContent.replace('仅本机', '共享');
-        renderActions(); renderFoot();
+        renderHead(); renderActions(); renderFoot();
       } else setTimeout(() => enterDash(d, { mode: 'shared', id, owner: true }), 180);
       break;
     }
@@ -1451,7 +1478,7 @@ $('#cities').addEventListener('click', (e) => {
   const c = $('#cities')._list.find((x) => x.name === b.dataset.city); if (!c) return;
   const spots = S.spots.filter((s) => s.city === c.name);
   const center = spots.length === 1 ? [spots[0].lon, spots[0].lat] : null;
-  S.sel = { title: c.name, tests: c.tests, center };
+  S.sel = { city: c.name, tests: c.tests, center };
   openDetail(S.sel);
   if (isCompact()) $('#panel').classList.remove('expanded');
   fit(spots, { maxZoom: 13, duration: 1600 });
@@ -1469,7 +1496,7 @@ $('#tl').addEventListener('click', (e) => {
     const g = S.segs[+st.dataset.seg]; if (!g) return;
     const keys = new Set(g.tests.map((t) => t.key));
     const one = keys.size === 1 ? g.tests[0] : null;
-    openDetail({ title: g.city, tests: [...g.tests].reverse(), center: one ? [one.lon, one.lat] : null });
+    openDetail({ city: g.city, tests: [...g.tests].reverse(), center: one ? [one.lon, one.lat] : null });
     markStay(+st.dataset.seg);
     if (isCompact()) $('#panel').classList.remove('expanded');
     fit(g.tests, { maxZoom: 13, duration: 1400 });
@@ -1488,17 +1515,16 @@ $('#actions').addEventListener('click', async (e) => {
   if (b.id === 'actNew') { history.pushState({}, '', '/'); exitDash(); setTimeout(() => $('#file').click(), 700); }
   if (b.id === 'actCopy') copy(shareUrl(S.shareId));
   if (b.id === 'actDelete') {
-    if (!confirm('停止分享后，这个链接会立刻失效，数据也会从云端删除。确定吗？')) return;
+    if (!confirm(tr('confirmStop'))) return;
     try {
       const res = await fetch(`/api/share/${S.shareId}`, { method: 'DELETE', headers: { 'X-Delete-Token': owners()[S.shareId] || '' } });
-      if (!res.ok && res.status !== 404) throw new Error(`删除失败（${res.status}）`);
+      if (!res.ok && res.status !== 404) throw fail('err.delete', { s: res.status });
       dropOwner(S.shareId);
       S.mode = 'local'; S.owner = false; S.shareId = null;
       history.replaceState({}, '', '/');
-      $('#dashSub').textContent = $('#dashSub').textContent.replace('共享', '仅本机');
-      renderActions(); renderFoot();
-      toast('已停止分享，云端数据已删除');
-    } catch (err) { toast(err.message); }
+      renderHead(); renderActions(); renderFoot();
+      toast(tr('stopped'));
+    } catch (err) { toast(msgOf(err)); }
   }
 });
 
@@ -1513,6 +1539,25 @@ addEventListener('resize', () => {
   else { map.setPadding(landingPadding()); map.setZoom(landingZoom()); }
 });
 addEventListener('popstate', route);
+
+/* Language switch (i18n.js has already redrawn static markup): redraw what was rendered from the dictionaries. */
+addEventListener('langchange', () => {
+  try { if (map) localizeLabels(); } catch {}
+  renderHead(); hideTip();
+  if (!sheet.hidden && sheetRender) sheetBody.innerHTML = sheetRender();
+  if (!$('#loading').hidden) renderLoading();
+  if (S.view !== 'dash' || !S.ds) return;
+  renderActions(); renderLegend(); renderPanel();
+  if (S.sel) renderDetail(S.sel);
+  if (S.playing) {
+    markStay(S.playSeg);
+    const g = S.segs && S.segs[S.playSeg];
+    if (g) $('#pcCity').textContent = cityName(g.city);
+  }
+  for (const m of markers.values()) m.key = '';
+  scheduleMarkers();
+  requestAnimationFrame(() => { positionPill(); positionTabs(); });
+});
 
 /* ════════════════════════════════════════════════════════════
    Boot

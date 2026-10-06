@@ -30,6 +30,9 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   color-scheme: dark;
 }
+:root:lang(zh-TW) {
+  --sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", "PingFang TC", "Microsoft JhengHei UI", system-ui, sans-serif;
+}
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #f5f5f7;
@@ -221,6 +224,7 @@ body.sheet-open .landing { transform: scale(.96); filter: blur(6px); opacity: .5
   transition: background .3s, transform .5s var(--spring);
 }
 .ghost:hover { background: var(--fill2); }
+.ghost b { font-weight: inherit; }
 .ghost span { display: inline-block; transition: transform .5s var(--spring); }
 .ghost:hover span { transform: translateX(4px); }
 
@@ -593,6 +597,7 @@ body:not([data-view="dash"]) .maplibregl-ctrl-bottom-right { opacity: .5; }
   .kpi-hero { display: flex; flex-direction: column; }
 
   .legend { left: 12px; right: auto; bottom: auto; top: 128px; min-width: 0; width: 210px; padding: 9px 12px 8px; }
+  :root:lang(en) .legend { width: 236px; }
   .zoom { display: none; }
 
   .detail {
@@ -802,6 +807,20 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
 .site-foot a:hover, .site-foot button:hover, .foot.links a:hover, .foot.links button:hover { color: var(--fg); }
 .site-foot svg { width: 14px; height: 14px; fill: currentColor; }
 .foot.links { margin-top: 10px; }
+
+/* Language switcher: a tiny segmented control in the footers */
+.lang { display: inline-flex; align-items: center; gap: 1px; padding: 2px; border-radius: 999px; background: var(--fill2); vertical-align: middle; }
+.site-foot .lang button, .foot.links .lang button {
+  min-width: 26px; height: 20px; padding: 0 7px; border-radius: 999px; justify-content: center;
+  font-size: 11.5px; font-weight: 600; color: var(--muted); transition: color .2s, background .25s;
+}
+.site-foot .lang button[aria-pressed="true"], .foot.links .lang button[aria-pressed="true"] { background: var(--fill); color: var(--fg); }
+/* Too narrow for one line: the switcher drops to its own row inside the footer */
+@media (max-width: 480px) {
+  .site-foot { flex-wrap: wrap; justify-content: center; row-gap: 5px; width: max-content; max-width: calc(100% - 32px); border-radius: 20px; padding: 7px 14px; }
+  .site-foot .lang-sep { display: none; }
+  .site-foot .lang { flex-basis: 100%; justify-content: center; background: none; padding: 0; }
+}
 @media (max-height: 700px) { .site-foot { position: static; translate: none; margin-top: 22px; } }
 
 .steps { list-style: none; counter-reset: step; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }

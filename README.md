@@ -9,6 +9,7 @@
 - 地图标记参考苹果「照片」的地图：带白边的圆角方块显示该处的中位数，角标是测试次数，缩放时会弹性地合并、拆开；点一个合并块，会列出里面的每一次测试（按月份分组的方块网格）。
 - 「时间线」参考 Google 地图时间线：按年、按月翻看，把测试整理成「停留」（某城市某几天）和「移动」（车程或飞行距离），地图上按时间连出轨迹，远程移动画成虚线大圆弧；还能一键回放这一年的行程。
 - 可按下载、上传或延迟上色，按网络类型和年份筛选，左侧有按网络类型和按城市的中位数。
+- 界面支持简体中文、繁體中文和 English（Simplified Chinese, Traditional Chinese, English）：默认跟随浏览器语言，可在页脚或面板底部的「简 · 繁 · EN」切换，选择会记在本机。城市名和底图地名也会跟着切换。文案在 `web/public/i18n.js`，城市名在 `web/public/cities.js`。
 
 ## 怎么导出 CSV
 
@@ -20,7 +21,7 @@
 
 ```
 web/                     Cloudflare Pages
-  public/                静态前端（index.html / styles.css / app.js / cities.js）
+  public/                静态前端（index.html / styles.css / app.js / i18n.js / cities.js）
   functions/api/[[path]].js   把 /api/* 通过 Service Binding 转给 Worker
   wrangler.toml
 worker/                  Cloudflare Worker：speedtest-map-api
