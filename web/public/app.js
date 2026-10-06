@@ -71,6 +71,7 @@ const ICON = {
   close: '<svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg>',
   plane: '<svg viewBox="0 0 24 24"><path d="M21 15.5v-1.8l-8-5V3.5a1.5 1.5 0 0 0-3 0v5.2l-8 5v1.8l8-2.5v5.2l-2 1.5v1.3l3.5-1 3.5 1v-1.3l-2-1.5V13l8 2.5Z" fill="currentColor" stroke="none"/></svg>',
   car: '<svg viewBox="0 0 24 24"><path d="M5 12l1.8-4.6A2 2 0 0 1 8.7 6h6.6a2 2 0 0 1 1.9 1.4L19 12"/><rect x="3.5" y="12" width="17" height="5" rx="1.6"/><path d="M6.5 17v1.8M17.5 17v1.8"/></svg>',
+  check: '<svg class="ck" viewBox="0 0 24 24" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9.5"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></svg>',
   fwd: '<svg viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor" stroke="none"/></svg>',
@@ -677,22 +678,35 @@ const placeNames = (spots) => {
 /* hover & click */
 const tip = $('#tip');
 let tipToken = 0;
+/* The CSV has no column for the tester's own carrier; the nearest it records is the operator of the
+   test server (Server Name), so the tooltip lists the most used ones at this spot. */
+function carriersOf(spots) {
+  const c = new Map();
+  for (const s of spots) for (const t of s.tests) if (t.server) c.set(t.server, (c.get(t.server) || 0) + 1);
+  const top = [...c.entries()].sort((a, b) => b[1] - a[1]);
+  return { names: top.slice(0, 3).map((x) => x[0]), more: Math.max(0, top.length - 3) };
+}
 async function showMarkerTip(m) {
   if (S.view !== 'dash' || isCompact()) return;
   const p = m.p, token = ++tipToken;
-  const render = (title) => {
+  const render = (title, carriers) => {
     if (token !== tipToken) return;
     tip.innerHTML = `<b>${esc(title)}</b>
+      <div class="tip-trio">${trioCells({ dl: featureValue(p, 'dl'), ul: featureValue(p, 'ul'), ping: featureValue(p, 'ping') })}</div>
       <div class="row"><span>${tr('tipTests')}</span><span>${tr('tipN', { n: p.n })}</span></div>
-      <div class="row"><span>${METRICS.dl.name}</span><span>${fmt(featureValue(p, 'dl'))} Mbps</span></div>
-      <div class="row"><span>${METRICS.ul.name}</span><span>${fmt(featureValue(p, 'ul'))} Mbps</span></div>
-      <div class="row"><span>${METRICS.ping.name}</span><span>${fmt(featureValue(p, 'ping'))} ms</span></div>`;
+      ${carriers && carriers.names.length ? `<div class="row carriers"><span>${tr('tipCarrier')}</span><span>${carriers.names.map(esc).join('<br>')}${carriers.more ? `<br><em>${esc(tr('andMoreN', { n: carriers.more }))}</em>` : ''}</span></div>` : ''}`;
     tip.hidden = false;
     const pt = map.project(m.coords), r = m.el.getBoundingClientRect();
     placeTip({ x: r.right - 6, y: pt.y - r.height + 8 });
   };
-  render(p.cluster ? tr('nPlaces', { n: p.point_count }) : cityName(S.spotByKey.get(p.k)?.city || ''));
-  if (p.cluster) render(placeNames(await leavesOf(m)));
+  if (!p.cluster) {
+    const s = S.spotByKey.get(p.k);
+    render(cityName(s?.city || ''), s ? carriersOf([s]) : null);
+    return;
+  }
+  render(tr('nPlaces', { n: p.point_count }));
+  const spots = await leavesOf(m);
+  render(placeNames(spots), carriersOf(spots));
 }
 function placeTip(pt) {
   const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -738,8 +752,8 @@ function pulse(lngLat) {
 }
 
 function uiPadding() {
-  if (isCompact()) return { top: 190, bottom: 200, left: 40, right: 40 };
-  return { top: 130, bottom: 90, left: 410, right: S.sel ? 460 : 90 };
+  if (isCompact()) return { top: 200, bottom: 200, left: 40, right: 40 };
+  return { top: 130, bottom: 90, left: 440, right: S.sel ? 490 : 100 };
 }
 function camPadding() { const p = uiPadding(); return { ...p, bottom: p.bottom + EXTRA() }; }
 const mercX = (lon) => (lon + 180) / 360;
@@ -976,9 +990,9 @@ function renderChips() {
   const tc = new Map(), yc = new Map();
   for (const t of S.ds.tests) { tc.set(t.type, (tc.get(t.type) || 0) + 1); yc.set(t.year, (yc.get(t.year) || 0) + 1); }
   $('#types').innerHTML = typeList().map((ty) =>
-    `<button type="button" class="chip" data-type="${esc(ty)}" aria-pressed="${S.types.has(ty)}">${esc(typeName(ty))}<small>${tc.get(ty)}</small></button>`).join('');
+    `<button type="button" class="chip" data-type="${esc(ty)}" aria-pressed="${S.types.has(ty)}">${ICON.check}${esc(typeName(ty))}<small>${tc.get(ty)}</small></button>`).join('');
   $('#years').innerHTML = [...yc.keys()].sort().map((y) =>
-    `<button type="button" class="chip" data-year="${y}" aria-pressed="${S.years.has(y)}">${y || tr('unknown')}<small>${yc.get(y)}</small></button>`).join('');
+    `<button type="button" class="chip" data-year="${y}" aria-pressed="${S.years.has(y)}">${ICON.check}${y || tr('unknown')}<small>${yc.get(y)}</small></button>`).join('');
 }
 function renderFoot() {
   const bits = [tr('foot.city')];
@@ -1168,6 +1182,9 @@ function setTab(tab) {
   stopPlay(); closeDetail();
   S.tab = tab;
   document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === tab));
+  const tabsEl = $('#tabs');
+  tabsEl.classList.remove('morph'); void tabsEl.offsetWidth; tabsEl.classList.add('morph');
+  clearTimeout(tabsEl._morph); tabsEl._morph = setTimeout(() => tabsEl.classList.remove('morph'), 360);
   positionTabs();
   $('#ov').hidden = tab !== 'overview';
   $('#tl').hidden = tab !== 'timeline';
@@ -1685,7 +1702,7 @@ addEventListener('langchange', () => {
 /* ════════════════════════════════════════════════════════════
    Boot
    ════════════════════════════════════════════════════════════ */
-['.title', '.actions', '.panel', '.zoom'].forEach((sel, i) => {
+['.title', '.tabs', '.actions', '.panel', '.zoom'].forEach((sel, i) => {
   const el = document.querySelector(sel); if (el) { el.classList.add('enter'); el.style.setProperty('--d', i); }
 });
 initMap();

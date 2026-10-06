@@ -21,6 +21,7 @@ const TARGETS = [
   ['.drop-inner', { frost: 2.5, tint: .16, bevel: 30, thick: 34 }],
   ['.title', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
   ['#actions', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
+  ['#tabs', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
   ['.zoom', { frost: 1.5, tint: .16, bevel: 18, thick: 18 }],
   ['.playchip', { frost: 2, tint: .2, bevel: 18, thick: 18 }],
   ['.site-foot', { frost: 2, tint: .18, bevel: 16, thick: 16 }],
