@@ -856,3 +856,46 @@ body:not([data-view="dash"]) .maplibregl-canvas-container.maplibregl-interactive
 .hero { font-size: clamp(64px, 12vw, 148px); line-height: 1.02; letter-spacing: -.05em; }
 .hero .grad { padding: 0 .04em .08em; }
 .landing:not(.is-loading) .brand { display: none; }
+
+/* ─────────────────────────────────────────────────────────────
+   Space backdrop (dark) — stars instead of colour blobs, like the Apple Maps globe
+   ───────────────────────────────────────────────────────────── */
+#stars { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
+@media (prefers-color-scheme: dark) {
+  .aurora i { display: none; }
+  .aurora .halo { opacity: .55; background: radial-gradient(ellipse 50% 50% at 50% 100%, rgba(100, 180, 255, .5), rgba(10, 132, 255, .18) 45%, transparent 70%); }
+}
+@media (prefers-color-scheme: light) { #stars { display: none; } }
+
+/* ─────────────────────────────────────────────────────────────
+   Map pins — Apple Maps balloon: round head, pointed tip on the spot, white rim, soft shadow
+   ───────────────────────────────────────────────────────────── */
+.pm-in {
+  padding-bottom: calc(var(--s, 44px) * .22 + 3px);
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, .42)) drop-shadow(0 1px 2px rgba(0, 0, 0, .3));
+}
+.pm-in::after {
+  /* contact shadow under the tip */
+  left: 50%; bottom: 0; width: 12px; height: 4px; border-radius: 50%;
+  background: rgba(0, 0, 0, .45); box-shadow: none; transform: translateX(-50%); filter: blur(1px);
+}
+.pm-card {
+  border: 0; background: none; box-shadow: none; isolation: isolate;
+  color: rgba(0, 0, 0, .84);
+}
+.pm-card::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  border: 2.5px solid #fff;
+  background:
+    radial-gradient(85% 85% at 70% 30%, rgba(255, 255, 255, .5), transparent 60%),
+    linear-gradient(225deg, color-mix(in srgb, var(--c) 78%, #fff), var(--c) 50%, color-mix(in srgb, var(--c) 78%, #000));
+}
+.pm-card b { font-size: calc(var(--s, 44px) * .32); }
+.pm-card small { font-size: 7.5px; margin-top: 1px; }
+.pm-badge {
+  top: -5px; right: -7px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px;
+  font-size: 10.5px; line-height: 19px; background: #1d1d1f; color: #fff;
+  border: 1.5px solid #fff; box-shadow: none;
+}
+.pm:hover .pm-in { transform: translateY(-6px) scale(1.08); }

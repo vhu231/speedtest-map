@@ -95,4 +95,4 @@ npm run deploy
 
 [MIT](LICENSE) © 2026 vhu231
 
-底图 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 贡献者 · © [CARTO](https://carto.com/attributions)；地图渲染使用 [MapLibre GL JS](https://maplibre.org/)（BSD-3-Clause）。
+底图 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 贡献者 · © [CARTO](https://carto.com/attributions)；低缩放级别的地球影像来自 NASA [Blue Marble](https://earthdata.nasa.gov/gibs)（公有领域）；地图渲染使用 [MapLibre GL JS](https://maplibre.org/)（BSD-3-Clause）。

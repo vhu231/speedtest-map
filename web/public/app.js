@@ -357,14 +357,104 @@ function onStyle() {
     });
   } catch {}
   localizeLabels();
+  addEarth();
   addDataLayers();
+}
+
+/* Apple-Maps-style globe: NASA Blue Marble relief imagery (public domain) at low zoom, fading into the
+   street map as you zoom in, with country borders and the equator/tropics drawn over it. */
+const GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg';
+function graticule() {
+  const line = (lat, kind) => ({
+    type: 'Feature', properties: { kind },
+    geometry: { type: 'LineString', coordinates: Array.from({ length: 181 }, (_, i) => [-180 + i * 2, lat]) },
+  });
+  return { type: 'FeatureCollection', features: [line(0, 'equator'), line(23.44, 'tropic'), line(-23.44, 'tropic'), line(66.56, 'polar'), line(-66.56, 'polar')] };
+}
+function addEarth() {
+  if (!map || map.getSource('earth')) return;
+  const layers = map.getStyle().layers;
+  const firstSymbol = (layers.find((l) => l.type === 'symbol') || {}).id;
+  const dark = darkQ.matches;
+  map.addSource('earth', {
+    type: 'raster', tiles: [GIBS], tileSize: 256, maxzoom: 8,
+    attribution: 'Imagery <a href="https://earthdata.nasa.gov/gibs" target="_blank" rel="noopener">NASA Blue Marble</a>',
+  });
+  map.addLayer({
+    id: 'earth', type: 'raster', source: 'earth',
+    paint: {
+      'raster-opacity': ['interpolate', ['linear'], ['zoom'], 0, 1, 4.5, 1, 6.5, 0],
+      'raster-brightness-max': dark ? .9 : 1, 'raster-saturation': .1, 'raster-contrast': .08, 'raster-fade-duration': 300,
+    },
+  }, firstSymbol);
+  // country borders stay visible on top of the imagery
+  for (const l of layers) if (l['source-layer'] === 'boundary' && l.type === 'line') { try { map.moveLayer(l.id, firstSymbol); } catch {} }
+  map.addSource('graticule', { type: 'geojson', data: graticule() });
+  const fade = ['interpolate', ['linear'], ['zoom'], 0, .55, 4, .55, 5.5, 0];
+  map.addLayer({
+    id: 'graticule', type: 'line', source: 'graticule', filter: ['==', ['get', 'kind'], 'equator'],
+    paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': fade },
+  }, firstSymbol);
+  map.addLayer({
+    id: 'graticule-dash', type: 'line', source: 'graticule', filter: ['!=', ['get', 'kind'], 'equator'],
+    paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': fade, 'line-dasharray': [2, 3] },
+  }, firstSymbol);
+}
+
+/* Starfield behind the globe. Stars drift with the globe's spin and twinkle slowly; nothing is drawn in
+   light mode or once the map is zoomed in far enough to cover the sky. */
+function initStars() {
+  const cv = $('#stars'); if (!cv) return;
+  const ctx = cv.getContext('2d');
+  let stars = [], w = 0, h = 0, last = 0, blank = false;
+  const resize = () => {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    w = innerWidth; h = innerHeight;
+    cv.width = w * dpr; cv.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const tints = ['#ffffff', '#ffffff', '#ffffff', '#cfe0ff', '#ffe9c7'];
+    stars = Array.from({ length: Math.round((w * h) / 2400) }, () => ({
+      x: Math.random() * w * 2, y: Math.random() * h,
+      r: Math.random() < .93 ? .3 + Math.random() * .55 : .9 + Math.random() * .7,
+      a: .25 + Math.random() * .7, ph: Math.random() * 6.28, sp: .4 + Math.random() * 1.4,
+      c: tints[(Math.random() * tints.length) | 0],
+    }));
+    last = 0;
+  };
+  resize();
+  addEventListener('resize', resize);
+  const draw = (now) => {
+    requestAnimationFrame(draw);
+    if (now - last < 50) return;          // ~20 fps is plenty for a slow twinkle
+    last = now;
+    const hide = !darkQ.matches || (S.view === 'dash' && map && map.getZoom() > 5.5);
+    if (hide) { if (!blank) { ctx.clearRect(0, 0, w, h); blank = true; } return; }
+    blank = false;
+    const lng = map ? map.getCenter().lng : 0;
+    const shift = ((((lng % 360) + 360) % 360) / 360) * w * 2;
+    ctx.clearRect(0, 0, w, h);
+    for (const st of stars) {
+      let x = (st.x - shift) % (w * 2); if (x < 0) x += w * 2;
+      if (x > w) continue;
+      ctx.globalAlpha = st.a * (reduceMotion ? 1 : .7 + .3 * Math.sin((now / 1000) * st.sp + st.ph));
+      ctx.fillStyle = st.c;
+      ctx.beginPath(); ctx.arc(x, st.y, st.r, 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  };
+  requestAnimationFrame(draw);
 }
 
 /* Basemap labels follow the UI language (CARTO tiles only carry name:zh, so both Chinese variants use it). */
 function localizeLabels() {
+  // Some name:zh values carry both scripts, e.g. "欧洲/歐洲" or "亚洲;亞洲": keep the half that matches the UI.
+  const n = ['var', 'n'];
+  const cut = ['case', ['in', ';', n], ['index-of', ';', n], ['index-of', '/', n]];
+  const half = I18N.lang === 'zh-HK' ? ['slice', n, ['+', cut, 1]] : ['slice', n, 0, cut];
   const zh = I18N.lang === 'en'
     ? ['coalesce', ['get', 'name_en'], ['get', 'name']]
-    : ['coalesce', ['get', 'name:zh'], ['get', 'name_en'], ['get', 'name']];
+    : ['let', 'n', ['coalesce', ['get', 'name:zh'], ['get', 'name_en'], ['get', 'name']],
+      ['case', ['any', ['in', '/', n], ['in', ';', n]], half, n]];
   const style = map && map.getStyle();
   if (!style || !style.layers) return;
   for (const l of style.layers) {
@@ -436,7 +526,7 @@ function addDataLayers() {
 }
 
 function glowRadius(k) {
-  return ['*', k, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 14, 4, 24, 16, 40]];
+  return ['*', k, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 10, 4, 16, 16, 26]];
 }
 
 function spotsGeoJSON() {
@@ -529,7 +619,7 @@ function paintMarker(m, p, coords) {
   if (key === m.key) return;
   m.key = key;
   m.mk.setLngLat(coords);
-  const s = Math.round(Math.max(40, Math.min(68, 40 + 7 * Math.log2(p.n))));
+  const s = Math.round(Math.max(36, Math.min(58, 36 + 5.5 * Math.log2(p.n))));
   m.el.style.setProperty('--s', `${s}px`);
   m.el.style.setProperty('--c', colorFor(S.metric, v));
   m.el.style.zIndex = String(p.n);
@@ -1568,5 +1658,6 @@ addEventListener('langchange', () => {
   const el = document.querySelector(sel); if (el) { el.classList.add('enter'); el.style.setProperty('--d', i); }
 });
 initMap();
+initStars();
 route();
 })();
