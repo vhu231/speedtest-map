@@ -68,7 +68,12 @@ npx wrangler r2 bucket create speedtest-map
 npm run deploy
 ```
 
-站点地址是 `https://speedtest-map.pages.dev`（或你在 Pages 里绑定的自定义域名）。
+部署日志会打印站点地址。`speedtest-map.pages.dev` 已被占用时，Cloudflare 会自动加一段随机后缀。
+
+### 自定义域名
+
+1. Cloudflare 后台 → **Workers 和 Pages** → `speedtest-map` → **自定义域** → **设置自定义域**，填入域名（例如 `speed.example.com`）。域名托管在同一个 Cloudflare 账户时，DNS 会自动配好。
+2. 把 `web/public/index.html` 开头那段脚本最后的 `('')` 改成你的域名，例如 `('speed.example.com')`，push 后生效。之后从 `*.pages.dev` 打开的访客会被转到自定义域名，分享链接也就都用这个域名。
 
 ## 限制
 

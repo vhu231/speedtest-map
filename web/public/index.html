@@ -2,6 +2,15 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<script>
+  // Custom domain, e.g. "speed.example.com". When set, visitors who land on the production
+  // *.pages.dev address are sent there, so every share link carries the custom domain.
+  // Preview deployments (<hash>.<project>.pages.dev) are left alone.
+  (function (host) {
+    var h = location.hostname;
+    if (host && h !== host && /^[^.]+\.pages\.dev$/.test(h)) location.replace('https://' + host + location.pathname + location.search + location.hash);
+  })('');
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>测速地图</title>
 <meta name="description" content="把 Speedtest 导出的 CSV 放到地图上，本机查看或生成分享链接。">
