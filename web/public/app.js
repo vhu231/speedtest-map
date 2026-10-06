@@ -281,7 +281,8 @@ const S = {
   tab: 'overview',        // overview | timeline
   tl: { year: null, month: null },
   route: [], routeUpto: 0, routeData: null,
-  popAt: 0,               // markers created before this moment wait to pop in
+  popAt: 0,
+  selMarker: null,        // id of the marker whose detail card is open               // markers created before this moment wait to pop in
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -526,7 +527,7 @@ function addDataLayers() {
 }
 
 function glowRadius(k) {
-  return ['*', k, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 10, 4, 16, 16, 26]];
+  return ['*', k, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 24, 4, 32, 16, 46]];
 }
 
 function spotsGeoJSON() {
@@ -588,6 +589,26 @@ function updateMarkers() {
   }
   for (const [id, m] of shownMarkers) if (!next.has(id)) retireMarker(m);
   shownMarkers = next;
+  placeLabels();
+}
+
+/* Like Apple Maps, captions never pile up: larger markers claim their caption first, and a caption that
+   would overlap another marker or an already placed caption is hidden. */
+function placeLabels() {
+  const list = [...shownMarkers.values()].map((m) => {
+    const pt = map.project(m.coords), s = parseFloat(m.el.style.getPropertyValue('--s')) || 36;
+    return { m, x: pt.x, y: pt.y, s, n: m.p.n };
+  }).sort((a, b) => (b.m.id === S.selMarker) - (a.m.id === S.selMarker) || b.n - a.n);
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const circles = list.map((o) => ({ l: o.x - o.s / 2, r: o.x + o.s / 2, t: o.y - o.s / 2, b: o.y + o.s / 2 }));
+  const placed = [];
+  list.forEach((o, i) => {
+    const w = Math.max(44, Math.min(120, (o.m.el.querySelector('.pm-label b').textContent.length || 3) * 12));
+    const box = { l: o.x - w / 2, r: o.x + w / 2, t: o.y + o.s / 2 + 3, b: o.y + o.s / 2 + 31 };
+    const ok = !placed.some((p) => hit(box, p)) && !circles.some((c, j) => j !== i && hit(box, c));
+    o.m.el.classList.toggle('nolabel', !ok);
+    if (ok) placed.push(box);
+  });
 }
 function retireMarker(m) {
   m.el.classList.add('out');
@@ -602,10 +623,11 @@ function clearMarkers() {
 function makeMarker(id) {
   const el = document.createElement('button');
   el.type = 'button'; el.className = 'pm';
-  el.innerHTML = '<span class="pm-in"><span class="pm-card"><b></b><small></small></span><span class="pm-badge"></span></span>';
+  el.innerHTML = '<span class="pm-in"><span class="pm-card"><b></b><small></small></span></span>'
+    + '<span class="pm-dot"></span><span class="pm-label"><b></b><span></span></span>';
   const delay = Math.max(0, S.popAt - performance.now()) + Math.random() * 160;
   el.style.setProperty('--delay', `${delay | 0}ms`);
-  const m = { id, el, key: '', mk: new maplibregl.Marker({ element: el, anchor: 'bottom' }) };
+  const m = { id, el, key: '', mk: new maplibregl.Marker({ element: el, anchor: 'center' }) };
   el.addEventListener('click', (e) => { e.stopPropagation(); onMarkerClick(m); });
   el.addEventListener('mouseenter', () => showMarkerTip(m));
   el.addEventListener('mouseleave', hideTip);
@@ -619,16 +641,19 @@ function paintMarker(m, p, coords) {
   if (key === m.key) return;
   m.key = key;
   m.mk.setLngLat(coords);
-  const s = Math.round(Math.max(36, Math.min(58, 36 + 5.5 * Math.log2(p.n))));
+  const s = Math.round(Math.max(32, Math.min(46, 32 + 3.6 * Math.log2(p.n))));
   m.el.style.setProperty('--s', `${s}px`);
   m.el.style.setProperty('--c', colorFor(S.metric, v));
   m.el.style.zIndex = String(p.n);
+  m.el.classList.toggle('on', S.selMarker === m.id);
   const card = m.el.querySelector('.pm-card');
   card.firstChild.textContent = fmt(v);
   card.lastChild.textContent = METRICS[S.metric].unit;
-  const badge = m.el.querySelector('.pm-badge');
-  badge.textContent = p.n > 999 ? '999+' : p.n;
-  badge.hidden = p.n < 2;
+  // Apple-Maps-style caption under the marker: the place, then how many tests
+  const label = m.el.querySelector('.pm-label');
+  label.lastChild.textContent = tr('nTimes', { n: p.n });
+  if (!p.cluster) label.firstChild.textContent = cityName(S.spotByKey.get(p.k)?.city || '');
+  else leavesOf(m).then((spots) => { if (m.key === key) label.firstChild.textContent = topPlace(spots); });
   m.el.setAttribute('aria-label', tr('markerAria', { n: p.n, metric: METRICS[S.metric].name, v: fmt(v), unit: METRICS[S.metric].unit }));
 }
 
@@ -639,6 +664,12 @@ async function leavesOf(m) {
     return leaves.map((l) => S.spotByKey.get(l.properties.k)).filter(Boolean);
   } catch { return []; }
 }
+const topPlace = (spots) => {
+  const c = new Map();
+  for (const s of spots) c.set(s.city, (c.get(s.city) || 0) + s.st.n);
+  const names = [...c.entries()].sort((a, b) => b[1] - a[1]);
+  return names.length ? cityName(names[0][0]) + (names.length > 1 ? tr('andMore') : '') : '';
+};
 const placeNames = (spots) => {
   const c = new Map();
   for (const s of spots) c.set(s.city, (c.get(s.city) || 0) + s.st.n);
@@ -681,6 +712,7 @@ async function onMarkerClick(m) {
   hideTip(); stopPlay();
   const spots = await leavesOf(m);
   if (!spots.length) return;
+  selectMarker(m.id);
   const tests = spots.flatMap((s) => s.tests).sort((a, b) => b.ts - a.ts);
   const single = spots.length === 1 ? spots[0] : null;
   openDetail({
@@ -1022,7 +1054,12 @@ function openDetail(group) {
   $('#detail').classList.add('show');
   pulse(group.center || null);
 }
+function selectMarker(id) {
+  S.selMarker = id;
+  for (const mk of shownMarkers.values()) mk.el.classList.toggle('on', mk.id === id);
+}
 function closeDetail() {
+  selectMarker(null);
   if (!S.sel) return;
   S.sel = null;
   $('#detail').classList.remove('show');
