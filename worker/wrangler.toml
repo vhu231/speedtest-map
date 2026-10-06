@@ -5,3 +5,13 @@ compatibility_date = "2025-09-01"
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "speedtest-map"
+
+# Hourly: delete shares older than 24 h and keep the bucket under R2_LIMIT_BYTES.
+[triggers]
+crons = ["7 * * * *"]
+
+[vars]
+# Stay inside the R2 free tier (10 GB-month) with a margin; oldest shares are evicted first.
+R2_LIMIT_BYTES = "10200547328"
+# How long a share link lives.
+SHARE_TTL_SECONDS = "86400"

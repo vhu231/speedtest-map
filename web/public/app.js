@@ -318,6 +318,9 @@ function initMap() {
     });
   } catch (e) { console.warn(e); body.classList.add('map-ready'); return; }
   map.setPadding(landingPadding());
+  // glass.js (three.js Liquid Glass) draws into this map's WebGL context; it listens for these.
+  window.STM = { map };
+  dispatchEvent(new CustomEvent('stm:map', { detail: map }));
   setInteractive(false);
   map.on('style.load', onStyle);
   map.once('load', () => setTimeout(() => body.classList.add('map-ready'), 80));
@@ -360,6 +363,7 @@ function onStyle() {
   localizeLabels();
   addEarth();
   addDataLayers();
+  dispatchEvent(new CustomEvent('stm:style', { detail: map }));
 }
 
 /* Apple-Maps-style globe: NASA Blue Marble relief imagery (public domain) at low zoom, fading into the
@@ -625,6 +629,16 @@ function placeLabels() {
     o.m.el.classList.toggle('nolabel', !ok);
     if (ok) placed.push(box);
   });
+  // With the WebGL Liquid Glass the panels are drawn inside the map canvas, beneath these HTML
+  // markers, so a marker sliding under a panel would show through it — fade it out instead.
+  const panes = document.documentElement.classList.contains('gl-live')
+    ? [...document.querySelectorAll('.dash .gl-glass')].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 2)
+    : [];
+  const cr = map.getCanvas().getBoundingClientRect();
+  for (const o of list) {
+    const x = o.x + cr.left, y = o.y + cr.top;
+    o.m.el.classList.toggle('under', panes.some((r) => x > r.left - o.s / 2 && x < r.right + o.s / 2 && y > r.top - o.s / 2 && y < r.bottom + o.s / 2));
+  }
 }
 function retireMarker(m) {
   m.el.classList.add('out');
@@ -1022,6 +1036,7 @@ function renderFoot() {
   if (S.ds.noPing) bits.push(tr('foot.noPing', { n: S.ds.noPing }));
   if (S.ds.noGeo) bits.push(tr('foot.noGeo', { n: S.ds.noGeo }));
   if (S.mode === 'shared') bits.push(tr('foot.shared'));
+  if (S.mode === 'shared' && S.expires) bits.push(tr('foot.expires', { t: fmtWhen(Date.parse(S.expires)) }));
   $('#foot').textContent = bits.join(tr('sentenceGap'));
 }
 
@@ -1279,7 +1294,7 @@ function stopPlay() {
    View transitions
    ════════════════════════════════════════════════════════════ */
 function enterDash(ds, opts) {
-  S.ds = ds; S.mode = opts.mode; S.shareId = opts.id || null; S.owner = !!opts.owner; S.sharedAt = opts.created || null;
+  S.ds = ds; S.mode = opts.mode; S.shareId = opts.id || null; S.owner = !!opts.owner; S.sharedAt = opts.created || null; S.expires = opts.expires || null;
   S.types = new Set(ds.tests.map((t) => t.type));
   S.years = new Set(ds.tests.map((t) => t.year));
   S.sel = null; S.citiesAll = false; S.metric = 'dl';
@@ -1394,8 +1409,12 @@ function showChoice(ds) {
     <button type="button" class="cancel" id="sheetCancel" data-pick>${tr('pickAnother')}</button>`);
 }
 
+// Same limit as the Worker: shares are capped at 500 KB.
+const MAX_CSV = 500 * 1024;
+const byteLength = (s) => new Blob([s]).size;
+
 async function doShare(ds) {
-  if (ds.publicCSV.length > 5 * 1024 * 1024) { showError(fail('err.shareTooBig'), ds); return; }
+  if (byteLength(ds.publicCSV) > MAX_CSV) { showError(fail('err.shareTooBig')); return; }
   openSheet(() => `
     <div class="center">
       <h3 class="t" id="sheetTitle">${tr('sharingTitle')}</h3>
@@ -1415,7 +1434,7 @@ async function doShare(ds) {
     // The worker's error text is Chinese only; show our own message per status instead.
     if (!res.ok) throw res.status === 400 ? fail('err.notCsv') : res.status === 413 ? fail('err.tooBig') : fail('err.upload', { s: res.status });
     saveOwner(data.id, data.deleteToken);
-    showDone(ds, data.id);
+    showDone(ds, data.id, data.expires);
   } catch (e) {
     showError(e.message === 'Failed to fetch' ? fail('err.offline') : e, ds);
   }
@@ -1423,7 +1442,7 @@ async function doShare(ds) {
 
 function shareUrl(id) { return `${location.origin}/s/${id}`; }
 
-function showDone(ds, id) {
+function showDone(ds, id, expires) {
   const url = shareUrl(id);
   const inDash = S.view === 'dash';
   openSheet(() => `
@@ -1437,7 +1456,7 @@ function showDone(ds, id) {
       ${navigator.share ? `<button type="button" class="btn tonal" id="nativeShare">${ICON.share}${tr('nativeShare')}</button>` : ''}
       <button type="button" class="btn tonal" id="openShared">${ICON.map}${tr(inDash ? 'done' : 'openMap')}</button>
     </div>`);
-  sheet._done = { ds, id };
+  sheet._done = { ds, id, expires };
 }
 
 function showError(err, ds) {
@@ -1480,7 +1499,7 @@ async function copy(text) {
 async function handleFile(file) {
   if (!file) return;
   if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') { toast(tr('pickCsv')); return; }
-  if (file.size > 50 * 1024 * 1024) { toast(tr('fileTooBig')); return; }
+  if (file.size > MAX_CSV) { showError(fail('err.tooBig')); return; }
   try {
     const text = await file.text();
     const ds = readDataset(text, file.name);
@@ -1506,13 +1525,13 @@ async function loadShared(id) {
   $('#loading').querySelectorAll('.btn').forEach((b) => b.remove());
   try {
     const [res] = await Promise.all([fetch(`/api/share/${id}`), sleep(reduceMotion ? 0 : 900)]);
-    if (!res.ok) throw res.status === 404 ? fail('err.notFound') : fail('err.load', { s: res.status });
+    if (!res.ok) throw res.status === 404 ? fail('err.notFound') : res.status === 410 ? fail('err.expired') : fail('err.load', { s: res.status });
     const text = await res.text();
     let name = '';
     try { name = decodeURIComponent(res.headers.get('X-Share-Name') || ''); } catch {}
     const ds = readDataset(text, name);
     if (!ds.name) ds.nameKey = 'sharedName';
-    enterDash(ds, { mode: 'shared', id, owner: !!owners()[id], created: res.headers.get('X-Share-Created') });
+    enterDash(ds, { mode: 'shared', id, owner: !!owners()[id], created: res.headers.get('X-Share-Created'), expires: res.headers.get('X-Share-Expires') });
   } catch (e) {
     loadErr = e.message === 'Failed to fetch' ? fail('err.offlineShort') : e;
     renderLoading();
@@ -1589,12 +1608,12 @@ sheetBody.addEventListener('click', (e) => {
       navigator.share({ title: `${dsName(sheet._done.ds)} · ${tr('app')}`, url: shareUrl(sheet._done.id) }).catch(() => {});
       break;
     case 'openShared': {
-      const { ds: d, id } = sheet._done;
+      const { ds: d, id, expires } = sheet._done;
       closeSheet(); history.pushState({}, '', `/s/${id}`);
       if (S.view === 'dash' && S.ds === d) {
         S.mode = 'shared'; S.shareId = id; S.owner = true;
         renderHead(); renderActions(); renderFoot();
-      } else setTimeout(() => enterDash(d, { mode: 'shared', id, owner: true }), 180);
+      } else setTimeout(() => enterDash(d, { mode: 'shared', id, owner: true, expires }), 180);
       break;
     }
   }

@@ -86,10 +86,13 @@ npm run deploy
 
 ## 限制
 
-- 分享的 CSV 上限 5 MB；本机查看上限 50 MB。
+- CSV 文件上限 500 KB（网页和 Worker 都会检查）。
+- 分享链接 24 小时后失效：打开过期链接时立即删除，Worker 每小时的定时任务也会清理一遍，R2 上另有一条 1 天过期的生命周期规则兜底。
+- R2 总用量超过 `R2_LIMIT_BYTES`（默认约 9.5 GB，留在 10 GB 免费额度内）时，存新分享前会先删除最老的分享。两个数值都在 `worker/wrangler.toml` 里改。
 - 城市名按坐标就近归类，深港交界一带用了一条粗略的分界线，可能不准。
 - 延迟为 0 的记录（早期导出常见）不计入延迟统计。
-- 底图来自 CARTO / OpenStreetMap，需要联网。
+- 底图来自 CARTO / OpenStreetMap，地球影像来自 NASA，需要联网。
+- 界面的 Liquid Glass 效果用 three.js 在地图的 WebGL 里实时渲染；不支持 WebGL2 的浏览器会退回 CSS 毛玻璃。
 
 ## 许可
 

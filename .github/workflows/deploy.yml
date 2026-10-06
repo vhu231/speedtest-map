@@ -37,6 +37,10 @@ jobs:
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         run: npx wrangler r2 bucket create speedtest-map || echo "bucket already exists"
 
+      - name: Expire shares after 1 day (R2 lifecycle backstop)
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: npx wrangler r2 bucket lifecycle add speedtest-map expire-shares shares/ --expire-days 1 --force || echo "lifecycle rule already present"
+
       - name: Deploy API Worker
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         run: npx wrangler deploy --config worker/wrangler.toml
