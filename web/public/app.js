@@ -752,8 +752,9 @@ function pulse(lngLat) {
 }
 
 function uiPadding() {
-  if (isCompact()) return { top: 200, bottom: 200, left: 40, right: 40 };
-  return { top: 130, bottom: 90, left: 440, right: S.sel ? 490 : 100 };
+  // Room for the controls plus the marker itself: its pill sits on the point, its name hangs ~60 px below.
+  if (isCompact()) return { top: 190, bottom: 250, left: 72, right: 72 };
+  return { top: 150, bottom: 140, left: 464, right: S.sel ? 500 : 130 };
 }
 function camPadding() { const p = uiPadding(); return { ...p, bottom: p.bottom + EXTRA() }; }
 const mercX = (lon) => (lon + 180) / 360;

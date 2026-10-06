@@ -263,7 +263,7 @@ button.row:active { background: var(--fill-2); }
 
 .group { margin-top: 32px; }
 .group h2, .mh { margin: 0 0 12px 18px; font-size: 13px; font-weight: 600; color: var(--label-2); letter-spacing: -.005em; }
-.foot { margin: 32px 8px 0; font-size: 12px; line-height: 1.5; color: var(--label-3); }
+.foot { margin: 32px 0 0; font-size: 12px; line-height: 1.5; color: var(--label-3); }
 
 /* ─────────────────────────────────────────────────────────────
    Stage: stars → map → veil
@@ -555,14 +555,14 @@ body[data-view="dash"] .dash .enter { opacity: 1; transform: none; filter: none;
 /* Sidebar */
 .panel {
   position: absolute; left: 16px; top: 84px; bottom: 16px; width: 384px;
-  border-radius: var(--r-xl); padding: 24px 16px 20px;
+  border-radius: var(--r-xl); padding: 24px 24px 20px;
   overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
   transform: translateX(-32px);
 }
 .panel::-webkit-scrollbar { display: none; }
-.panel > .trio, .panel > .peaks, .panel > .meta { margin-left: 8px; margin-right: 8px; }
 .panel > .trio .tc:first-child { padding-left: 0; }
-.panel > .group > .chips, #ov > .group > .chips { padding: 0 8px; }
+/* cards, chips and lists share one edge; a chip group's heading lines up with its chips, a list's with the row text */
+.group:has(> .chips) > h2 { margin-left: 0; }
 .handle { display: none; }
 #ov, #tl { animation: fadeUp .6s var(--spring-soft) both; }
 
@@ -615,11 +615,10 @@ body[data-view="dash"] .dash .enter { opacity: 1; transform: none; filter: none;
   font-size: 12.5px; transform-origin: 0 100%; animation: tipIn .35s var(--spring) both;
 }
 @keyframes tipIn { from { opacity: 0; transform: scale(.92); } }
-.tip b { display: block; font-size: 14px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 2px; }
+.tip > b { display: block; font-size: 14px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 10px; }
 .tip .row { display: flex; justify-content: space-between; gap: 16px; min-height: 0; padding: 1px 0; color: var(--label-2); }
 .tip .row span:last-child { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
 .tip { min-width: 240px; max-width: 300px; padding: 14px 16px; }
-.tip b { margin-bottom: 10px; }
 .tip-trio { margin-bottom: 10px; padding-bottom: 10px; border-bottom: .5px solid var(--sep); }
 .tip-trio .trio, .tip .tip-trio { display: grid; grid-template-columns: repeat(3, 1fr); }
 .tip-trio .tc { padding: 0 10px; }
@@ -643,16 +642,16 @@ body[data-view="dash"] .dash .enter { opacity: 1; transform: none; filter: none;
 /* ─────────────────────────────────────────────────────────────
    Timeline
    ───────────────────────────────────────────────────────────── */
-#tl > .spans { margin: 28px 8px 0; }
+#tl > .spans { margin: 28px 0 0; }
 #tl > .spans button { height: 32px; }
-.tl-head { display: flex; align-items: center; gap: 16px; margin: 28px 8px 0; }
+.tl-head { display: flex; align-items: center; gap: 16px; margin: 28px 0 0; }
 .tl-title { flex: 1; min-width: 0; text-align: center; display: flex; flex-direction: column; }
 .tl-title b { font: 600 17px/1.25 var(--display); letter-spacing: -.02em; }
 .tl-title span { font-size: 12.5px; color: var(--label-2); margin-top: 2px; }
-.hist { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin: 24px 8px 0; }
+.hist { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin: 24px 0 0; }
 .hist i { flex: 1; height: max(2px, var(--h)); border-radius: 2px; background: var(--label-3); animation: growBar .8s var(--spring) backwards; }
 @keyframes growBar { from { height: 2px; } }
-.player { display: flex; align-items: center; gap: 12px; margin: 24px 8px 0; }
+.player { display: flex; align-items: center; gap: 12px; margin: 24px 0 0; }
 .player .btn { flex: 1; }
 .player .btn svg { width: 14px; height: 14px; }
 .player .btn svg path, .player .btn svg rect { fill: currentColor; stroke: none; }
@@ -758,7 +757,7 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
   .actions { height: 48px; }
   .panel {
     left: 0; right: 0; top: auto; bottom: 0; width: auto; height: min(80vh, 700px);
-    border-radius: var(--r-xl) var(--r-xl) 0 0; padding: 8px 12px calc(16px + env(safe-area-inset-bottom));
+    border-radius: var(--r-xl) var(--r-xl) 0 0; padding: 8px 20px calc(16px + env(safe-area-inset-bottom));
     transform: translateY(calc(100% - 176px));
     transition: opacity .7s var(--ease-out), transform .8s var(--spring), filter .7s var(--ease-out);
   }
@@ -776,6 +775,9 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
   }
   .detail.show { transform: none; }
   .playchip { top: 136px; }
+  /* keep the map credit above the collapsed sheet (the sheet's glass is drawn under the HTML) */
+  body[data-view="dash"] .maplibregl-ctrl-bottom-right { bottom: calc(60vh + 184px); }
+  body:has(.panel.expanded, .detail.show) .maplibregl-ctrl-bottom-right { opacity: 0; pointer-events: none; }
   .sheet-body { padding: 24px 20px 20px; }
 }
 
