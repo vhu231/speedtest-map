@@ -817,7 +817,12 @@ body:not([data-view="dash"]) .maplibregl-canvas-container.maplibregl-interactive
 /* ─────────────────────────────────────────────────────────────
    Space backdrop (dark) — stars instead of colour blobs, like the Apple Maps globe
    ───────────────────────────────────────────────────────────── */
-#stars { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
+#stars { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; transition: opacity .8s var(--ease-out); }
+#stars.off { opacity: 0; }
+#stars i { position: absolute; left: 0; top: 0; height: 100%; background-repeat: repeat-x; will-change: transform; }
+#stars i:nth-child(2) { animation: twinkle 3.2s ease-in-out infinite alternate; }
+#stars i:nth-child(3) { animation: twinkle 4.4s ease-in-out -2.2s infinite alternate; }
+@keyframes twinkle { from { opacity: .15; } to { opacity: 1; } }
 @media (prefers-color-scheme: dark) {
   .aurora i { display: none; }
   .aurora .halo { opacity: .55; background: radial-gradient(ellipse 50% 50% at 50% 100%, rgba(100, 180, 255, .5), rgba(10, 132, 255, .18) 45%, transparent 70%); }
@@ -903,3 +908,74 @@ body:not([data-view="dash"]) .maplibregl-canvas-container.maplibregl-interactive
 @keyframes pmOut { to { transform: scale(.3); opacity: 0; } }
 body:not([data-view="dash"]) .pm { pointer-events: none; }
 .pm.nolabel .pm-label { opacity: 0; }
+
+/* ─────────────────────────────────────────────────────────────
+   Liquid Glass — light catches two opposite corners of the rim, the body is lit from inside, and a soft
+   specular spot follows the pointer. glass.js adds real refraction (Chromium) on top of this.
+   ───────────────────────────────────────────────────────────── */
+.lg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.title, .actions .btn.glass { position: relative; }
+.glass, .lg { isolation: isolate; }
+.glass {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--glass) 80%, rgba(255,255,255,.08)), var(--glass));
+  -webkit-backdrop-filter: saturate(180%) blur(22px);
+  backdrop-filter: saturate(180%) blur(22px);
+  border: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    inset 0 0 0 .5px rgba(255, 255, 255, .1),
+    inset 0 -10px 24px -18px rgba(255, 255, 255, .25),
+    0 14px 40px -12px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .18);
+}
+.glass::before, .lg::before {
+  /* rim light: bright at top-left and bottom-right, fading across */
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; z-index: 2;
+  background: linear-gradient(135deg, rgba(255,255,255,.65), rgba(255,255,255,.08) 28%, rgba(255,255,255,0) 50%, rgba(255,255,255,.06) 72%, rgba(255,255,255,.4));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.glass::after, .lg::after {
+  /* specular spot under the pointer */
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 2;
+  background: radial-gradient(180px circle at var(--mx, 20%) var(--my, -40%), rgba(255, 255, 255, .16), transparent 60%);
+  mix-blend-mode: plus-lighter; opacity: 0; transition: opacity .5s var(--ease-out);
+}
+.glass:hover::after, .lg:hover::after { opacity: 1; }
+@media (prefers-color-scheme: light) {
+  .glass::before, .lg::before { background: linear-gradient(135deg, rgba(255,255,255,1), rgba(255,255,255,.3) 30%, rgba(255,255,255,0) 50%, rgba(0,0,0,.04) 75%, rgba(255,255,255,.8)); }
+  .glass { box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 .5px rgba(0,0,0,.05), 0 14px 40px -14px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.06); }
+}
+
+/* With real refraction the controls become clear glass: thin tint, the backdrop shows through bent. */
+.lg-refract .lg-on { background: linear-gradient(160deg, rgba(255,255,255,.07), rgba(255,255,255,.015) 60%, rgba(0,0,0,.08)); }
+.lg-refract .drop-inner.lg-on { background: linear-gradient(160deg, rgba(255,255,255,.08), rgba(20,20,24,.28)); }
+@media (prefers-color-scheme: light) {
+  .lg-refract .lg-on { background: linear-gradient(160deg, rgba(255,255,255,.45), rgba(255,255,255,.2)); }
+}
+.lg-on .seg-pill, .lg-on > * { position: relative; z-index: 1; }
+.seg.lg-on .seg-pill { position: absolute; }
+
+/* The drop zone keeps its Apple-Intelligence glow ring outside the glass. */
+.drop-inner.lg::before { z-index: 2; }
+
+/* Floating lens on the landing page */
+.lens {
+  position: fixed; left: 0; top: 0; z-index: 5; border-radius: 50%; pointer-events: none;
+  opacity: 0; transition: opacity .6s var(--ease-out);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .28),
+    inset 3px 5px 10px -2px rgba(255, 255, 255, .45),
+    inset -4px -6px 14px -4px rgba(0, 0, 0, .35),
+    0 24px 48px -12px rgba(0, 0, 0, .55);
+  background: radial-gradient(60% 45% at 32% 22%, rgba(255, 255, 255, .22), transparent 70%);
+  will-change: transform;
+}
+.lens.show { opacity: 1; }
+.lens::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; padding: 1.5px;
+  background: linear-gradient(140deg, rgba(255,255,255,.9), rgba(255,255,255,.05) 35%, rgba(255,255,255,0) 55%, rgba(255,255,255,.5));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+/* the side panel scrolls, so a pseudo-element rim would scroll away with it */
+.panel::before, .panel::after { display: none; }

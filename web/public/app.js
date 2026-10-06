@@ -402,48 +402,56 @@ function addEarth() {
   }, firstSymbol);
 }
 
-/* Starfield behind the globe. Stars drift with the globe's spin and twinkle slowly; nothing is drawn in
-   light mode or once the map is zoomed in far enough to cover the sky. */
+/* Starfield behind the globe. The stars are painted once into two tiles (steady + twinkling) and then only
+   moved with GPU transforms, so spinning the globe never repaints the sky. The sky drifts with the globe and
+   is hidden in light mode or once the map is zoomed in far enough to cover it. */
 function initStars() {
-  const cv = $('#stars'); if (!cv) return;
-  const ctx = cv.getContext('2d');
-  let stars = [], w = 0, h = 0, last = 0, blank = false;
-  const resize = () => {
-    const dpr = Math.min(2, devicePixelRatio || 1);
-    w = innerWidth; h = innerHeight;
-    cv.width = w * dpr; cv.height = h * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sky = $('#stars'); if (!sky) return;
+  const layers = [...sky.children];
+  let tileW = 1;
+  const paint = () => {
+    const dpr = Math.min(2, devicePixelRatio || 1), w = innerWidth, h = innerHeight;
+    tileW = w * 2;
     const tints = ['#ffffff', '#ffffff', '#ffffff', '#cfe0ff', '#ffe9c7'];
-    stars = Array.from({ length: Math.round((w * h) / 2400) }, () => ({
-      x: Math.random() * w * 2, y: Math.random() * h,
-      r: Math.random() < .93 ? .3 + Math.random() * .55 : .9 + Math.random() * .7,
-      a: .25 + Math.random() * .7, ph: Math.random() * 6.28, sp: .4 + Math.random() * 1.4,
-      c: tints[(Math.random() * tints.length) | 0],
-    }));
-    last = 0;
+    const count = Math.round((w * h) / 2400);
+    layers.forEach((layer, li) => {
+      const cv = document.createElement('canvas');
+      cv.width = tileW * dpr; cv.height = h * dpr;
+      const ctx = cv.getContext('2d');
+      ctx.scale(dpr, dpr);
+      // layer 0 holds most stars; layers 1 and 2 hold the twinkling ones, fading out of phase in CSS
+      const n = li === 0 ? count : Math.round(count * .18);
+      for (let i = 0; i < n; i++) {
+        const big = Math.random() < (li ? .25 : .06);
+        ctx.globalAlpha = .25 + Math.random() * .7;
+        ctx.fillStyle = tints[(Math.random() * tints.length) | 0];
+        ctx.beginPath();
+        ctx.arc(Math.random() * tileW, Math.random() * h, big ? .9 + Math.random() * .8 : .3 + Math.random() * .55, 0, 6.283);
+        ctx.fill();
+      }
+      cv.toBlob((b) => {
+        if (!b) return;
+        if (layer._url) URL.revokeObjectURL(layer._url);
+        layer._url = URL.createObjectURL(b);
+        layer.style.backgroundImage = `url(${layer._url})`;
+        layer.style.backgroundSize = `${tileW}px ${h}px`;
+        layer.style.width = `${w + tileW}px`;
+      });
+    });
+    follow();
   };
-  resize();
-  addEventListener('resize', resize);
-  const draw = (now) => {
-    requestAnimationFrame(draw);
-    if (now - last < 50) return;          // ~20 fps is plenty for a slow twinkle
-    last = now;
-    const hide = !darkQ.matches || (S.view === 'dash' && map && map.getZoom() > 5.5);
-    if (hide) { if (!blank) { ctx.clearRect(0, 0, w, h); blank = true; } return; }
-    blank = false;
+  const follow = () => {
     const lng = map ? map.getCenter().lng : 0;
-    const shift = ((((lng % 360) + 360) % 360) / 360) * w * 2;
-    ctx.clearRect(0, 0, w, h);
-    for (const st of stars) {
-      let x = (st.x - shift) % (w * 2); if (x < 0) x += w * 2;
-      if (x > w) continue;
-      ctx.globalAlpha = st.a * (reduceMotion ? 1 : .7 + .3 * Math.sin((now / 1000) * st.sp + st.ph));
-      ctx.fillStyle = st.c;
-      ctx.beginPath(); ctx.arc(x, st.y, st.r, 0, 6.283); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+    const shift = ((((lng % 360) + 360) % 360) / 360) * tileW;
+    const tf = `translate3d(${-shift.toFixed(1)}px,0,0)`;
+    for (const l of layers) l.style.transform = tf;
+    const hide = S.view === 'dash' && map && map.getZoom() > 5.5;
+    sky.classList.toggle('off', !!hide);
   };
-  requestAnimationFrame(draw);
+  paint();
+  let t = 0;
+  addEventListener('resize', () => { clearTimeout(t); t = setTimeout(paint, 200); });
+  if (map) map.on('move', follow);
 }
 
 /* Basemap labels follow the UI language (CARTO tiles only carry name:zh, so both Chinese variants use it). */
@@ -566,7 +574,15 @@ function animateDots(to, delay = 0, dur = 1100) {
    at the location and a count badge — the clustered source decides what merges. */
 const markers = new Map();
 let shownMarkers = new Map(), markerRAF = 0;
-function scheduleMarkers() { if (!markerRAF) markerRAF = requestAnimationFrame(() => { markerRAF = 0; updateMarkers(); }); }
+// Rebuilding the marker set queries the clustered source, so while the camera moves do it at most
+// every 120 ms; MapLibre keeps the existing markers glued to the map in between.
+let markerAt = 0, markerTimer = 0;
+function scheduleMarkers() {
+  if (markerRAF || markerTimer) return;
+  const wait = 120 - (performance.now() - markerAt);
+  if (wait > 0) { markerTimer = setTimeout(() => { markerTimer = 0; scheduleMarkers(); }, wait); return; }
+  markerRAF = requestAnimationFrame(() => { markerRAF = 0; markerAt = performance.now(); updateMarkers(); });
+}
 
 function featureValue(p, m) {
   if (!p.cluster) return m === 'ping' ? (p.ping >= 0 ? p.ping : null) : p[m];
