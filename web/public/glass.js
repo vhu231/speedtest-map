@@ -89,10 +89,14 @@ const frag = /* glsl */`
     vec2 bend = -g * slope * uThick;              // light through the rim comes from further in
 
     vec2 base = uRect.xy + vPx;
-    float cr = frosted(base + bend * 1.00, uFrost).r;
-    float cg = frosted(base + bend * 1.06, uFrost).g;
-    vec4 cb = frosted(base + bend * 1.12, uFrost);
-    vec4 col = vec4(cr, cg, cb.b, cb.a);          // premultiplied, like the map canvas
+    // One frosted sample for the body (it is the expensive part: 13 taps). The chromatic fringe only
+    // exists where the rim bends the light, so red and blue get their own offset there, from single taps.
+    vec4 col = frosted(base + bend * 1.06, uFrost);   // premultiplied, like the map canvas
+    if (slope > 0.002) {
+      vec4 mid = back(base + bend * 1.06);
+      col.r += back(base + bend * 1.00).r - mid.r;
+      col.b += back(base + bend * 1.12).b - mid.b;
+    }
 
     // body tint keeps text legible — mixed in premultiplied space
     col = col * (1.0 - uTintA) + vec4(uTint * uTintA, uTintA);

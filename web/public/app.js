@@ -300,6 +300,8 @@ function initMap() {
       center: [100, 22], zoom: landingZoom(),
       attributionControl: { compact: true },
       renderWorldCopies: false, maxPitch: 70, fadeDuration: 250,
+      // 3× phone screens cost 2.25× the pixels of 2× for no visible gain under the glass; labels are HTML
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
       dragRotate: true, pitchWithRotate: true,
     });
   } catch (e) { console.warn(e); body.classList.add('map-ready'); return; }
@@ -312,6 +314,7 @@ function initMap() {
   map.once('load', () => setTimeout(() => body.classList.add('map-ready'), 80));
   map.on('error', (e) => { console.warn('map', e && e.error); body.classList.add('map-ready'); });
   map.on('render', scheduleMarkers);
+  map.on('moveend', scheduleMarkers);
   map.on('sourcedata', (e) => { if (e.sourceId === 'spots') scheduleMarkers(); });
   map.on('click', (e) => {
     if (S.view === 'dash' && !e.originalEvent.target.closest?.('.pm')) closeDetail();
@@ -569,6 +572,10 @@ function featureValue(p, m) {
 
 function updateMarkers() {
   if (!map || S.view !== 'dash' || !map.getSource('spots')) { clearMarkers(); return; }
+  // During playback flights the clusters re-key at every zoom step; rebuilding the markers each time
+  // kept them stuck in their pop-in animation (mostly invisible) and cost phones frames. Hold the set
+  // still while the camera flies (MapLibre keeps them pinned to their spots) and refresh on arrival.
+  if (S.playing && map.isMoving()) { placeLabels(); return; }
   const next = new Map();
   for (const f of map.querySourceFeatures('spots')) {
     const p = f.properties;
@@ -844,6 +851,9 @@ function setPanelMini(on) {
   setTimeout(() => map && placeLabels(), 750);
 }
 $('#panelMin').addEventListener('click', () => setPanelMini(true));
+// a sheet that drops back to the peek shows its top again, not wherever it was scrolled to
+new MutationObserver(() => { const el = $('#panel'); if (isCompact() && !el.classList.contains('expanded')) el.scrollTop = 0; })
+  .observe($('#panel'), { attributes: true, attributeFilter: ['class'] });
 $('#panelFab').addEventListener('click', () => { setPanelMini(false); if (isCompact()) setTimeout(() => $('#panelFab').blur(), 0); });
 
 /* A vertical drag on a sheet: follows the finger with rubber-banding past the ends, then hands the
@@ -910,8 +920,8 @@ function camPadding() { const p = uiPadding(); return { ...p, bottom: p.bottom +
 const mercX = (lon) => (lon + 180) / 360;
 const mercY = (lat) => (1 - Math.asinh(Math.tan((lat * Math.PI) / 180)) / Math.PI) / 2;
 const unMercY = (y) => (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI;
-function fit(list, opts = {}) {
-  if (!map || !list.length) return;
+/* Where fit() would put the camera for these points: { center, zoom } plus the padding it used. */
+function fitTarget(list, opts = {}) {
   const p = uiPadding();
   const xs = list.map((s) => mercX(s.lon)), ys = list.map((s) => mercY(s.lat));
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -923,13 +933,86 @@ function fit(list, opts = {}) {
   const globeFill = Math.log2((Math.min(isCompact() ? innerWidth - 32 : bw, bh) * 0.5) / 81.5);
   zoom = Math.max(globeFill, Math.min(maxZoom, zoom));
   const center = [((x0 + x1) / 2) * 360 - 180, unMercY((y0 + y1) / 2)];
-  // opts.linear: constant-pace easeTo (playback) instead of flyTo's zoom-out arc and easing
-  map[opts.linear ? 'easeTo' : 'flyTo']({
+  return { center, zoom, p, bw, bh };
+}
+function fit(list, opts = {}) {
+  if (!map || !list.length) return;
+  const f = fitTarget(list, opts), { center, zoom } = f;
+  prefetchTiles(center, zoom, f);
+  // opts.linear: constant pace (playback). A short hop slides (easeTo); a long one (opts.arc) still
+  // flies out and back in, or the camera would pan across a continent at street zoom, loading every
+  // tile on the way.
+  map[opts.linear && !opts.arc ? 'easeTo' : 'flyTo']({
     center, zoom, padding: camPadding(), pitch: opts.pitch ?? 0, bearing: 0,
     duration: reduceMotion ? 0 : opts.duration ?? 1800,
     easing: opts.linear ? (t) => t : opts.easing ?? easeInOutQuint, essential: true,
   });
 }
+/* Map preloading. Before the camera moves somewhere (and, during playback, a few stays ahead) the
+   basemap tiles that view will need are fetched into the browser's HTTP cache at low priority, so
+   when MapLibre asks for them they come from cache and the map is already drawn when the camera
+   lands. Uses the same URLs MapLibre would (same template, same subdomain pick). Skipped on
+   data-saver connections. */
+const prefetched = new Set(), prefetchQueue = [];
+let prefetchActive = 0;
+function tileSources() {
+  const out = [], style = map && map.getStyle && map.getStyle();
+  for (const [id, def] of Object.entries((style && style.sources) || {})) {
+    if (def.type !== 'vector' && def.type !== 'raster') continue;
+    const src = map.getSource(id), tiles = (src && src.tiles) || def.tiles;
+    if (!tiles || !tiles.length) continue;                            // TileJSON not loaded yet
+    out.push({ id, tiles, raster: def.type === 'raster', size: src.tileSize || def.tileSize || 512,
+      min: src.minzoom ?? 0, max: src.maxzoom ?? 22, scheme: def.scheme || 'xyz' });
+  }
+  return out;
+}
+function prefetchTiles(center, zoom, fitInfo) {
+  if (!map || navigator.connection?.saveData) return;
+  const f = fitInfo || fitTarget([{ lon: center[0], lat: center[1] }], { maxZoom: zoom });
+  const p = f.p, W = innerWidth, H = innerHeight + EXTRA();
+  // the padded area's centre is `center`; the canvas reaches this far around it, plus a margin
+  const ox = p.left + f.bw / 2, oy = p.top + f.bh / 2, m = 128;
+  for (const s of tileSources()) {
+    if (s.id === 'earth' && zoom > 6.5) continue;                     // the relief imagery has faded out
+    const z = Math.max(s.min, Math.min(s.max, s.raster ? Math.round(zoom + Math.log2(512 / s.size)) : Math.floor(zoom + Math.log2(512 / s.size))));
+    const n = 2 ** z, ws = 512 * 2 ** zoom;                           // tiles at z, world px at the view zoom
+    const cx = mercX(center[0]) * ws, cy = mercY(center[1]) * ws;
+    const tx0 = Math.floor(((cx - ox - m) / ws) * n), tx1 = Math.floor(((cx + W - ox + m) / ws) * n);
+    const ty0 = Math.max(0, Math.floor(((cy - oy - m) / ws) * n)), ty1 = Math.min(n - 1, Math.floor(((cy + H - oy + m) / ws) * n));
+    let budget = 40;
+    for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++) {
+      if (--budget < 0) break;
+      const xx = ((x % n) + n) % n, yy = s.scheme === 'tms' ? n - 1 - y : y;
+      const url = s.tiles[(xx + yy) % s.tiles.length].replace('{z}', z).replace('{x}', xx).replace('{y}', yy).replace('{r}', '');
+      if (prefetched.has(url)) continue;
+      prefetched.add(url); prefetchQueue.push(url);
+    }
+  }
+  pumpPrefetch();
+}
+function pumpPrefetch() {
+  while (prefetchActive < 6 && prefetchQueue.length) {
+    const url = prefetchQueue.shift();
+    prefetchActive++;
+    fetch(url, { credentials: 'same-origin', priority: 'low' }).then((r) => r.arrayBuffer()).catch(() => prefetched.delete(url))
+      .finally(() => { prefetchActive--; pumpPrefetch(); });
+  }
+}
+/* Once the timeline settles, quietly fetch the first stays so pressing play starts on a drawn map. */
+let warmT = 0;
+function warmPlayback() { clearTimeout(warmT); warmT = setTimeout(() => { if (S.tab === 'timeline' && !S.playing) prefetchStays(0, 4); }, 2200); }
+/* The next few stays of the timeline, in playback order. */
+const farHop = (a, b) => !!a && km(a, b) > 150;
+function prefetchStays(from = 0, count = 3) {
+  const segs = S.segs || [];
+  for (let i = from; i < Math.min(segs.length, from + count); i++) {
+    const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null, first = segs[i].tests[0];
+    if (farHop(prev, first)) { const m = fitTarget([prev, first]); prefetchTiles(m.center, m.zoom, m); }   // the top of the arc
+    const f = fitTarget(segs[i].tests, { maxZoom: 12 });
+    prefetchTiles(f.center, f.zoom, f);
+  }
+}
+
 /* Densest neighbourhood: the city with most tests, plus anything within ~250 km of it. */
 function homeSpots() {
   const by = new Map();
@@ -1329,7 +1412,13 @@ function updatePlayBtn() {
 }
 function markStay(i) {
   document.querySelectorAll('#tl .stay').forEach((b) => b.classList.toggle('on', +b.dataset.seg === i));
-  if (i >= 0) document.querySelector(`#tl .stay[data-seg="${i}"]`)?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+  // Keep the current stay in view inside the panel only (scrollIntoView would also scroll a collapsed
+  // phone sheet, and the page itself), and only while the list is actually showing.
+  const panel = $('#panel'), row = i >= 0 && document.querySelector(`#tl .stay[data-seg="${i}"]`);
+  if (!row || (isCompact() && !panel.classList.contains('expanded')) || panel.classList.contains('mini')) return;
+  const pr = panel.getBoundingClientRect(), rr = row.getBoundingClientRect();
+  const dy = rr.top < pr.top + 16 ? rr.top - pr.top - 16 : rr.bottom > pr.bottom - 16 ? rr.bottom - pr.bottom + 16 : 0;
+  if (dy) panel.scrollBy({ top: dy, behavior: reduceMotion ? 'auto' : 'smooth' });
 }
 function positionTabs() {
   const tabs = $('#tabs'), btn = tabs.querySelector('[aria-selected="true"]'), pill = tabs.querySelector('.tabs-pill');
@@ -1354,6 +1443,7 @@ function setTab(tab) {
     tlWindow();
     refilter({ animateRoute: true });
     fit(S.tests, { duration: 1800 });
+    warmPlayback();
   } else {
     clearRoute();
     refilter();
@@ -1366,6 +1456,7 @@ function setSpan(span) {
   tlWindow();
   refilter({ animateRoute: true });
   fit(S.tests, { duration: 1600 });
+  warmPlayback();
 }
 function shiftWindow(dir) {
   stopPlay(); closeDetail();
@@ -1375,6 +1466,7 @@ function shiftWindow(dir) {
   tlWindow();
   refilter({ animateRoute: true });
   fit(S.tests, { duration: 1600 });
+  warmPlayback();
 }
 
 /* Playback: walk through the stays in order — the camera flies to each one while the route grows behind it. */
@@ -1389,6 +1481,7 @@ async function startPlay() {
   const lastIdx = [];
   S.route.forEach((p, i) => { lastIdx[p.seg] = i; });
   cancelAnimationFrame(routeAnim); setRoute(0);
+  prefetchStays(0, 3);
   // Slow and even: each stay gets 2.4–4.5 s at 1×, and the camera and the route move at a constant pace.
   const base = Math.max(2400, Math.min(4500, 90000 / segs.length));
   const chip = $('#playChip');
@@ -1403,9 +1496,10 @@ async function startPlay() {
     $('#pcCity').textContent = cityName(g.city);
     chip.classList.remove('tick'); void chip.offsetWidth; chip.classList.add('tick');
     markStay(i);
+    prefetchStays(i + 1, 3);
     const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null;
     const travel = prev && km(prev, g.tests[0]) > 300 ? dwell * .75 : dwell * .5;
-    fit(g.tests, { maxZoom: 12, duration: travel, linear: true });
+    fit(g.tests, { maxZoom: 12, duration: travel, linear: true, arc: farHop(prev, g.tests[0]) });
     await animateRoute(lastIdx[i] ?? S.routeUpto, travel, (t) => t);
     if (token !== playToken) return;
     await sleep(dwell - travel);
