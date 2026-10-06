@@ -71,6 +71,8 @@ const ICON = {
   close: '<svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg>',
   plane: '<svg viewBox="0 0 24 24"><path d="M21 15.5v-1.8l-8-5V3.5a1.5 1.5 0 0 0-3 0v5.2l-8 5v1.8l8-2.5v5.2l-2 1.5v1.3l3.5-1 3.5 1v-1.3l-2-1.5V13l8 2.5Z" fill="currentColor" stroke="none"/></svg>',
   car: '<svg viewBox="0 0 24 24"><path d="M5 12l1.8-4.6A2 2 0 0 1 8.7 6h6.6a2 2 0 0 1 1.9 1.4L19 12"/><rect x="3.5" y="12" width="17" height="5" rx="1.6"/><path d="M6.5 17v1.8M17.5 17v1.8"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></svg>',
+  fwd: '<svg viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor" stroke="none"/></svg>',
   stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg>',
 };
@@ -78,8 +80,6 @@ const ICON = {
 /* ════════════════════════════════════════════════════════════
    Data: CSV → tests
    ════════════════════════════════════════════════════════════ */
-const TYPE_COLOR = { '5G': '#bf5af2', 'Wi-Fi': '#0a84ff', 'LTE': '#ff9f0a', 'Ethernet': '#30d158', '3G': '#ff375f' };
-const typeColor = (t) => TYPE_COLOR[t] || '#8e8e93';
 function normType(s) {
   const k = (s || '').toLowerCase().replace(/[\s_-]/g, '');
   if (k === 'fiveg' || k === '5g' || k === 'nr' || k === '5gsa' || k === '5gnsa') return '5G';
@@ -225,38 +225,19 @@ function demoDataset() {
    Metrics & colour
    ════════════════════════════════════════════════════════════ */
 const METRICS = {
-  dl: { get name() { return tr('m.dl'); }, unit: 'Mbps', stops: [25, 100, 250, 500, 900], pill: ['#0a84ff', '#5e5ce6'] },
-  ul: { get name() { return tr('m.ul'); }, unit: 'Mbps', stops: [5, 20, 40, 80, 150], pill: ['#bf5af2', '#ff375f'] },
-  ping: { get name() { return tr('m.ping'); }, unit: 'ms', stops: [15, 25, 40, 70, 120], invert: true, pill: ['#30d158', '#32ade6'] },
+  dl: { get name() { return tr('m.dl'); }, unit: 'Mbps' },
+  ul: { get name() { return tr('m.ul'); }, unit: 'Mbps' },
+  ping: { get name() { return tr('m.ping'); }, unit: 'ms' },
 };
 const darkQ = matchMedia('(prefers-color-scheme: dark)');
-const ramp = () => (darkQ.matches ? ['#ff453a', '#ff9f0a', '#ffd60a', '#30d158', '#64d2ff'] : ['#ff3b30', '#ff9500', '#ffb800', '#34c759', '#007aff']);
-function colorStops(m) {
-  const r = ramp(), M = METRICS[m];
-  return M.stops.map((s, i) => [s, M.invert ? r[r.length - 1 - i] : r[i]]);
-}
-function colorFor(m, v) {
-  if (v == null) return '#8e8e93';
-  const st = colorStops(m);
-  if (v <= st[0][0]) return st[0][1];
-  for (let i = 1; i < st.length; i++) {
-    if (v <= st[i][0]) {
-      const f = (v - st[i - 1][0]) / (st[i][0] - st[i - 1][0]);
-      return mix(st[i - 1][1], st[i][1], f);
-    }
-  }
-  return st[st.length - 1][1];
-}
-function mix(a, b, f) {
-  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-  const A = p(a), B = p(b);
-  return '#' + A.map((x, i) => Math.round(x + (B[i] - x) * f).toString(16).padStart(2, '0')).join('');
-}
 const metricOf = (t, m) => (m === 'dl' ? t.dl : m === 'ul' ? t.ul : t.ping);
 function stats(list) {
   const pings = []; const dls = []; const uls = [];
   for (const t of list) { dls.push(t.dl); if (t.ul != null) uls.push(t.ul); if (t.ping != null) pings.push(t.ping); }
-  return { n: list.length, dl: median(dls), ul: median(uls), ping: median(pings), pn: pings.length };
+  return {
+    n: list.length, dl: median(dls), ul: median(uls), ping: median(pings), pn: pings.length,
+    maxDl: dls.length ? Math.max(...dls) : null, maxUl: uls.length ? Math.max(...uls) : null,
+  };
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -269,7 +250,6 @@ const S = {
   shareId: null,
   owner: false,
   sharedAt: null,
-  metric: 'dl',
   types: new Set(),
   years: new Set(),
   tests: [],
@@ -282,6 +262,7 @@ const S = {
   tl: { year: null, month: null },
   route: [], routeUpto: 0, routeData: null,
   popAt: 0,
+  playSpeed: 1,
   selMarker: null,        // id of the marker whose detail card is open               // markers created before this moment wait to pop in
 };
 
@@ -330,7 +311,7 @@ function initMap() {
   map.on('click', (e) => {
     if (S.view === 'dash' && !e.originalEvent.target.closest?.('.pm')) closeDetail();
   });
-  darkQ.addEventListener('change', () => { map.setStyle(STYLES[darkQ.matches ? 'dark' : 'light'], { diff: false }); renderLegend(); });
+  darkQ.addEventListener('change', () => { map.setStyle(STYLES[darkQ.matches ? 'dark' : 'light'], { diff: false }); });
 
   let last = performance.now();
   const loop = (now) => {
@@ -477,19 +458,6 @@ function localizeLabels() {
   }
 }
 
-function valueExpr(m) {
-  if (m === 'ping') {
-    return ['case', ['has', 'point_count'],
-      ['case', ['>', ['get', 'pn'], 0], ['/', ['get', 'pingw'], ['get', 'pn']], -1],
-      ['get', 'ping']];
-  }
-  return ['case', ['has', 'point_count'], ['/', ['get', m + 'w'], ['get', 'n']], ['get', m]];
-}
-function colorExpr(m) {
-  const v = valueExpr(m);
-  return ['case', ['<', v, 0], '#8e8e93', ['interpolate', ['linear'], v, ...colorStops(m).flat()]];
-}
-
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
 function addDataLayers() {
@@ -512,12 +480,12 @@ function addDataLayers() {
   map.addLayer({
     id: 'route-glow', type: 'line', source: 'route', filter: ['!=', ['get', 'jump'], true],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': dark ? '#0a84ff' : '#007aff', 'line-opacity': dark ? .45 : .25, 'line-width': 10, 'line-blur': 7 },
+    paint: { 'line-color': dark ? '#ffffff' : '#000000', 'line-opacity': dark ? .14 : .08, 'line-width': 10, 'line-blur': 7 },
   });
   map.addLayer({
     id: 'route', type: 'line', source: 'route', filter: ['!=', ['get', 'jump'], true],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': dark ? '#64d2ff' : '#007aff', 'line-width': 2.6, 'line-opacity': .95 },
+    paint: { 'line-color': dark ? '#ffffff' : '#1d1d1f', 'line-width': 2.2, 'line-opacity': .9 },
   });
   map.addLayer({
     id: 'route-jump', type: 'line', source: 'route', filter: ['==', ['get', 'jump'], true],
@@ -527,8 +495,8 @@ function addDataLayers() {
   map.addLayer({
     id: 'glow', type: 'circle', source: 'spots',
     paint: {
-      'circle-radius': glowRadius(dotScale), 'circle-color': colorExpr(S.metric), 'circle-blur': 1,
-      'circle-opacity': dark ? .55 : .35, 'circle-color-transition': { duration: 700 }, 'circle-pitch-alignment': 'map',
+      'circle-radius': glowRadius(dotScale), 'circle-color': '#000000', 'circle-blur': 1,
+      'circle-opacity': dark ? .35 : .12, 'circle-pitch-alignment': 'map',
     },
   });
   map.addLayer({
@@ -539,7 +507,7 @@ function addDataLayers() {
 }
 
 function glowRadius(k) {
-  return ['*', k, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 24, 4, 32, 16, 46]];
+  return ['*', k, ['interpolate', ['linear'], ['sqrt', ['get', 'n']], 1, 18, 4, 24, 16, 32]];
 }
 
 function spotsGeoJSON() {
@@ -616,11 +584,11 @@ function updateMarkers() {
    would overlap another marker or an already placed caption is hidden. */
 function placeLabels() {
   const list = [...shownMarkers.values()].map((m) => {
-    const pt = map.project(m.coords), s = parseFloat(m.el.style.getPropertyValue('--s')) || 36;
-    return { m, x: pt.x, y: pt.y, s, n: m.p.n };
+    const pt = map.project(m.coords), s = parseFloat(m.el.style.getPropertyValue('--s')) || 30;
+    return { m, x: pt.x, y: pt.y, s, w: m.el.offsetWidth || s, n: m.p.n };
   }).sort((a, b) => (b.m.id === S.selMarker) - (a.m.id === S.selMarker) || b.n - a.n);
   const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
-  const circles = list.map((o) => ({ l: o.x - o.s / 2, r: o.x + o.s / 2, t: o.y - o.s / 2, b: o.y + o.s / 2 }));
+  const circles = list.map((o) => ({ l: o.x - o.w / 2, r: o.x + o.w / 2, t: o.y - o.s / 2, b: o.y + o.s / 2 }));
   const placed = [];
   list.forEach((o, i) => {
     const w = Math.max(44, Math.min(120, (o.m.el.querySelector('.pm-label b').textContent.length || 3) * 12));
@@ -637,7 +605,7 @@ function placeLabels() {
   const cr = map.getCanvas().getBoundingClientRect();
   for (const o of list) {
     const x = o.x + cr.left, y = o.y + cr.top;
-    o.m.el.classList.toggle('under', panes.some((r) => x > r.left - o.s / 2 && x < r.right + o.s / 2 && y > r.top - o.s / 2 && y < r.bottom + o.s / 2));
+    o.m.el.classList.toggle('under', panes.some((r) => x > r.left - o.w / 2 && x < r.right + o.w / 2 && y > r.top - o.s / 2 && y < r.bottom + o.s / 2));
   }
 }
 function retireMarker(m) {
@@ -666,25 +634,24 @@ function makeMarker(id) {
 
 function paintMarker(m, p, coords) {
   m.p = p; m.coords = coords;
-  const v = featureValue(p, S.metric);
-  const key = `${S.metric}|${p.n}|${v}|${coords}`;
+  const v = featureValue(p, 'dl');   // markers show the download median; the tooltip and detail show all three
+  const key = `${p.n}|${v}|${coords}`;
   if (key === m.key) return;
   m.key = key;
   m.mk.setLngLat(coords);
-  const s = Math.round(Math.max(32, Math.min(46, 32 + 3.6 * Math.log2(p.n))));
+  const s = Math.round(Math.max(28, Math.min(36, 28 + 1.6 * Math.log2(p.n))));
   m.el.style.setProperty('--s', `${s}px`);
-  m.el.style.setProperty('--c', colorFor(S.metric, v));
   m.el.style.zIndex = String(p.n);
   m.el.classList.toggle('on', S.selMarker === m.id);
   const card = m.el.querySelector('.pm-card');
   card.firstChild.textContent = fmt(v);
-  card.lastChild.textContent = METRICS[S.metric].unit;
+  card.lastChild.textContent = 'Mbps';
   // Apple-Maps-style caption under the marker: the place, then how many tests
   const label = m.el.querySelector('.pm-label');
   label.lastChild.textContent = tr('nTimes', { n: p.n });
   if (!p.cluster) label.firstChild.textContent = cityName(S.spotByKey.get(p.k)?.city || '');
   else leavesOf(m).then((spots) => { if (m.key === key) label.firstChild.textContent = topPlace(spots); });
-  m.el.setAttribute('aria-label', tr('markerAria', { n: p.n, metric: METRICS[S.metric].name, v: fmt(v), unit: METRICS[S.metric].unit }));
+  m.el.setAttribute('aria-label', tr('markerAria', { n: p.n, metric: METRICS.dl.name, v: fmt(v), unit: 'Mbps' }));
 }
 
 async function leavesOf(m) {
@@ -907,7 +874,7 @@ function clearRoute() { cancelAnimationFrame(routeAnim); S.route = []; setRoute(
 function refilter(opts = {}) {
   const ds = S.ds;
   const inPeriod = S.tab === 'timeline'
-    ? (t) => t.ts && t.year === S.tl.year && (S.tl.month == null || new Date(t.ts).getMonth() === S.tl.month)
+    ? (t) => t.ts && t.ts > S.tl.start && t.ts <= S.tl.end
     : (t) => S.years.has(t.year);
   S.tests = ds.tests.filter((t) => S.types.has(t.type) && inPeriod(t));
   const m = new Map();
@@ -948,47 +915,37 @@ function countUp(el, to, digits) {
   el._raf = requestAnimationFrame(step);
 }
 
+/* The three measurements always travel together. `trioCells` is the large form (panel and detail
+   header); `trioInline` is the compact form at the end of a list row. */
+const trioCells = (st) => ['dl', 'ul', 'ping'].map((k) =>
+  `<div class="tc"><span class="tl">${esc(METRICS[k].name)}</span><b class="num">${fmt(st[k])}</b><small>${METRICS[k].unit}</small></div>`).join('');
+const peakCells = (st) =>
+  `<div class="pk"><span>${esc(tr('peak.dl'))}</span><b class="num">${fmt(st.maxDl)}</b><small>Mbps</small></div>`
+  + `<div class="pk"><span>${esc(tr('peak.ul'))}</span><b class="num">${fmt(st.maxUl)}</b><small>Mbps</small></div>`;
+const trioInline = (st) =>
+  `<span class="ti num"><span><i>↓</i>${fmt(st.dl)}</span><span><i>↑</i>${fmt(st.ul)}</span><span>${fmt(st.ping)}<i>ms</i></span></span>`;
+
 function renderPanel() {
-  const M = METRICS[S.metric], st = stats(S.tests);
-  $('#heroLabel').textContent = tr(`median.${S.metric}`);
-  $('#heroUnit').textContent = M.unit;
-  countUp($('#heroVal'), st[S.metric]);
+  const st = stats(S.tests);
+  const el = $('#trio');
+  if (!el.children.length) {
+    el.innerHTML = ['dl', 'ul', 'ping'].map((k) => `<div class="tc" data-k="${k}"><span class="tl"></span><b class="num">0</b><small></small></div>`).join('');
+  }
+  for (const c of el.children) {
+    const k = c.dataset.k;
+    c.querySelector('.tl').textContent = METRICS[k].name;
+    c.querySelector('small').textContent = METRICS[k].unit;
+    countUp(c.querySelector('b'), st[k]);
+  }
+  $('#peaks').innerHTML = peakCells(st);
+  $('#meta').textContent = `${tr('nTests', { n: st.n })} · ${tr('nPlaces', { n: S.spots.length })}`;
 
-  const others = Object.keys(METRICS).filter((k) => k !== S.metric);
-  const kp = $('#kpis');
-  if (!kp.children.length) kp.innerHTML = '<div><b><span class="num"></span><small></small></b><span></span></div>'.repeat(4);
-  const tiles = [
-    ...others.map((k) => ({ v: st[k], unit: METRICS[k].unit, label: tr(`median.${k}`) })),
-    { v: st.n, unit: tr('kpi.testsUnit'), label: tr('kpi.tests'), int: true },
-    { v: S.spots.length, unit: tr('kpi.placesUnit'), label: tr('kpi.places'), int: true },
-  ];
-  tiles.forEach((t, i) => {
-    const d = kp.children[i], b = d.firstChild;
-    countUp(b.firstChild, t.v, t.int ? (v) => Math.round(v).toLocaleString('en-US') : undefined);
-    b.lastChild.textContent = t.unit;
-    d.lastChild.textContent = t.label;
-  });
-
-  // network bars — honour year filter, show every type so it can be compared
+  // by network type — honours the year filter and lists every type so they can be compared
   const byYear = S.ds.tests.filter((t) => S.years.has(t.year));
-  const types = typeList();
-  const rows = types.map((ty) => {
-    const l = byYear.filter((t) => t.type === ty); return { ty, st: stats(l), on: S.types.has(ty) };
-  }).filter((r) => r.st.n);
-  const max = Math.max(1, ...rows.map((r) => r.st[S.metric] || 0));
-  $('#netBars').innerHTML = rows.map((r) => {
-    const v = r.st[S.metric];
-    const p = M.invert ? (v ? Math.max(6, (Math.min(...rows.map((x) => x.st.ping || Infinity)) / v) * 100) : 0) : ((v || 0) / max) * 100;
-    return `<div class="bar-row" style="--c:${typeColor(r.ty)};opacity:${r.on ? 1 : .4}">
-      <span class="lbl"><i></i>${esc(typeName(r.ty))}<small>${tr('nTimes', { n: r.st.n })}</small></span>
-      <span class="val">${fmt(v)}<small>${M.unit}</small></span>
-      <span class="track"><i style="--p:0%" data-p="${p.toFixed(1)}%"></i></span>
-      <span class="sub">↓ ${fmt(r.st.dl)} · ↑ ${fmt(r.st.ul)} Mbps · ${fmt(r.st.ping)} ms</span>
-    </div>`;
-  }).join('');
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    document.querySelectorAll('#netBars .track i').forEach((i) => i.style.setProperty('--p', i.dataset.p));
-  }));
+  $('#netBars').innerHTML = typeList().map((ty) => ({ ty, st: stats(byYear.filter((t) => t.type === ty)), on: S.types.has(ty) }))
+    .filter((r) => r.st.n)
+    .map((r) => `<li class="row${r.on ? '' : ' off'}"><span class="rn"><b>${esc(typeName(r.ty))}</b><small>${tr('nTimes', { n: r.st.n })}</small></span>${trioInline(r.st)}</li>`)
+    .join('');
 
   renderCities();
   renderChips();
@@ -997,24 +954,16 @@ function renderPanel() {
 }
 
 function renderCities() {
-  const M = METRICS[S.metric];
   const by = new Map();
   for (const t of S.tests) { let c = by.get(t.city); if (!c) by.set(t.city, (c = [])); c.push(t); }
-  const list = [...by.entries()].map(([name, tests]) => ({ name, tests, n: tests.length, v: median(tests.map((t) => metricOf(t, S.metric)).filter((x) => x != null)) }))
-    .sort((a, b) => b.n - a.n);
+  const list = [...by.entries()].map(([name, tests]) => ({ name, tests, n: tests.length })).sort((a, b) => b.n - a.n);
   const shown = S.citiesAll ? list : list.slice(0, 8);
-  const vmax = Math.max(1, ...list.map((c) => c.v || 0));
-  const vmin = Math.min(...list.map((c) => c.v || Infinity));
   const el = $('#cities');
-  el.innerHTML = shown.map((c, i) => {
-    const p = M.invert ? (c.v ? (vmin / c.v) * 100 : 0) : ((c.v || 0) / vmax) * 100;
-    return `<li><button type="button" class="city" data-city="${esc(c.name)}">
-      <span class="rk">${i + 1}</span>
-      <span class="nm">${esc(cityName(c.name))}<small>${tr('nTimes', { n: c.n })}</small></span>
-      <span class="v">${fmt(c.v)}</span>
-      <span class="mini"><i style="--p:${p.toFixed(1)}%;--c:${colorFor(S.metric, c.v)}"></i></span>
-    </button></li>`;
-  }).join('') + (list.length > 8 ? `<li><button type="button" class="more" id="moreCities">${S.citiesAll ? tr('showLess') : tr('showAllN', { n: list.length })}</button></li>` : '');
+  el.innerHTML = shown.map((c) => `<li><button type="button" class="row city" data-city="${esc(c.name)}">
+      <span class="rn"><b>${esc(cityName(c.name))}</b><small>${tr('nTimes', { n: c.n })}</small></span>
+      ${trioInline(stats(c.tests))}
+    </button></li>`).join('')
+    + (list.length > 8 ? `<li><button type="button" class="row more" id="moreCities">${S.citiesAll ? tr('showLess') : tr('showAllN', { n: list.length })}</button></li>` : '');
   el._list = list;
 }
 
@@ -1027,7 +976,7 @@ function renderChips() {
   const tc = new Map(), yc = new Map();
   for (const t of S.ds.tests) { tc.set(t.type, (tc.get(t.type) || 0) + 1); yc.set(t.year, (yc.get(t.year) || 0) + 1); }
   $('#types').innerHTML = typeList().map((ty) =>
-    `<button type="button" class="chip" data-type="${esc(ty)}" aria-pressed="${S.types.has(ty)}" style="--c:${typeColor(ty)}"><i></i>${esc(typeName(ty))}<small>${tc.get(ty)}</small></button>`).join('');
+    `<button type="button" class="chip" data-type="${esc(ty)}" aria-pressed="${S.types.has(ty)}">${esc(typeName(ty))}<small>${tc.get(ty)}</small></button>`).join('');
   $('#years').innerHTML = [...yc.keys()].sort().map((y) =>
     `<button type="button" class="chip" data-year="${y}" aria-pressed="${S.years.has(y)}">${y || tr('unknown')}<small>${yc.get(y)}</small></button>`).join('');
 }
@@ -1040,41 +989,15 @@ function renderFoot() {
   $('#foot').textContent = bits.join(tr('sentenceGap'));
 }
 
-function renderLegend() {
-  const M = METRICS[S.metric], st = colorStops(S.metric);
-  const lo = st[0][0], hi = st[st.length - 1][0];
-  const grad = st.map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(', ');
-  $('#legend').innerHTML = `<b>${esc(tr('legend', { m: M.name, unit: M.unit }))}</b>
-    <div class="ramp" style="--ramp:linear-gradient(90deg, ${grad})"></div>
-    <div class="ticks">${st.map(([v], i) => `<span>${i === 0 ? '≤' : i === st.length - 1 ? '≥' : ''}${v}</span>`).join('')}</div>`;
-}
-
-function positionPill() {
-  const seg = $('#metric'), btn = seg.querySelector('[aria-selected="true"]'), pill = seg.querySelector('.seg-pill');
-  pill.style.setProperty('--x', btn.offsetLeft + 'px');
-  pill.style.setProperty('--w', btn.offsetWidth + 'px');
-  const [a, b] = METRICS[S.metric].pill;
-  seg.style.setProperty('--pill-a', a); seg.style.setProperty('--pill-b', b);
-}
-
-function setMetric(m) {
-  if (m === S.metric) return;
-  S.metric = m;
-  document.querySelectorAll('#metric button').forEach((b) => b.setAttribute('aria-selected', b.dataset.m === m));
-  positionPill();
-  if (map && map.getLayer('glow')) map.setPaintProperty('glow', 'circle-color', colorExpr(m));
-  scheduleMarkers();
-  renderLegend(); renderPanel();
-  if (S.sel) renderDetail(S.sel);
-}
-
+/* One grouped Liquid Glass toolbar of icon buttons (labels go to aria-label / tooltip), as Apple's
+   toolbars do: related actions share one capsule, nothing is filled with colour. */
 function renderActions() {
+  const b = (id, icon, label) => `<button type="button" id="${id}" aria-label="${esc(label)}" title="${esc(label)}">${icon}</button>`;
   const a = $('#actions');
-  const btn = (id, cls, icon, label) => `<button type="button" class="btn ${cls}" id="${id}">${icon}<span class="lbl">${label}</span></button>`;
-  if (S.mode === 'local') a.innerHTML = btn('actNew', 'glass', ICON.plus, tr('act.new')) + btn('actShare', 'primary', ICON.share, tr('act.share'));
-  else if (S.mode === 'demo') a.innerHTML = btn('actNew', 'primary', ICON.plus, tr('act.useMine'));
-  else if (S.owner) a.innerHTML = btn('actDelete', 'glass', ICON.trash, tr('act.stop')) + btn('actCopy', 'primary', ICON.link, tr('act.copy'));
-  else a.innerHTML = btn('actCopy', 'glass', ICON.link, tr('act.copy')) + btn('actNew', 'primary', ICON.plus, tr('act.makeMine'));
+  if (S.mode === 'local') a.innerHTML = b('actShare', ICON.share, tr('act.share')) + b('actNew', ICON.plus, tr('act.new'));
+  else if (S.mode === 'demo') a.innerHTML = b('actNew', ICON.plus, tr('act.useMine'));
+  else if (S.owner) a.innerHTML = b('actCopy', ICON.link, tr('act.copy')) + b('actDelete', ICON.trash, tr('act.stop'));
+  else a.innerHTML = b('actCopy', ICON.link, tr('act.copy')) + b('actNew', ICON.plus, tr('act.makeMine'));
 }
 
 /* Detail card — a group names one city key ({ city }) or a set of spots ({ spots }) */
@@ -1103,56 +1026,49 @@ function renderDetail(group) {
   const ts = tests.map((t) => t.ts).filter(Boolean);
   const range = ts.length ? (Math.min(...ts) === Math.max(...ts) ? fmtDate(ts[0]) : `${fmtMonth(Math.min(...ts))} – ${fmtMonth(Math.max(...ts))}`) : '';
   const nSpots = new Set(tests.map((t) => t.key)).size;
-  const M = METRICS[S.metric];
 
-  // sparkline of the active metric over time
-  const W = 360, H = 76, P = 6;
-  const pts = tests.filter((t) => t.ts && metricOf(t, S.metric) != null);
+  // download over time, drawn quietly in the text colour
+  const W = 360, H = 64, P = 4;
+  const pts = tests.filter((t) => t.ts && t.dl != null);
   let spark = '';
-  if (pts.length) {
+  if (pts.length > 1) {
     const t0 = Math.min(...pts.map((t) => t.ts)), t1 = Math.max(...pts.map((t) => t.ts));
-    const vmax = Math.max(...pts.map((t) => metricOf(t, S.metric))) || 1;
+    const vmax = Math.max(...pts.map((t) => t.dl)) || 1;
     const x = (t) => (t1 === t0 ? W / 2 : P + ((t - t0) / (t1 - t0)) * (W - 2 * P));
     const y = (v) => H - 14 - (v / vmax) * (H - 14 - P);
     spark = `<div class="spark"><svg viewBox="0 0 ${W} ${H}" style="height:auto" aria-hidden="true">
-      <line x1="${P}" x2="${W - P}" y1="${H - 13}" y2="${H - 13}" stroke="currentColor" stroke-opacity=".12"/>
-      ${pts.slice(0, 400).map((t, i) => `<circle cx="${x(t.ts).toFixed(1)}" cy="${y(metricOf(t, S.metric)).toFixed(1)}" r="3.2" fill="${typeColor(t.type)}" fill-opacity=".85" style="animation-delay:${Math.min(i, 60) * 12}ms"/>`).join('')}
+      <line x1="${P}" x2="${W - P}" y1="${H - 13}" y2="${H - 13}" stroke="currentColor" stroke-opacity=".14"/>
+      ${pts.slice(0, 400).map((t, i) => `<circle cx="${x(t.ts).toFixed(1)}" cy="${y(t.dl).toFixed(1)}" r="2.6" style="animation-delay:${Math.min(i, 60) * 10}ms"/>`).join('')}
       <text class="axis" x="${P}" y="${H - 1}">${fmtMonth(t0)}</text>
       <text class="axis" x="${W - P}" y="${H - 1}" text-anchor="end">${fmtMonth(t1)}</text>
-      <text class="axis" x="${W - P}" y="10" text-anchor="end">${fmt(vmax)} ${M.unit}</text>
+      <text class="axis" x="${P}" y="9">↓ ${esc(METRICS.dl.name)} · ${fmt(vmax)} Mbps</text>
     </svg></div>`;
   }
 
-  // Photos-style grid grouped under month headers; every card carries all three measurements,
-  // with the one the map is coloured by drawn largest.
   const cap = 240;
-  let lastMonth = '';
-  const cell = (k, val, pre, post) =>
-    `<span class="m${k === S.metric ? ' on' : ''}">${pre ? `<small>${pre}</small>` : ''}<b class="num">${fmt(val)}</b>${post ? `<small>${post}</small>` : ''}</span>`;
-  const grid = tests.slice(0, cap).map((t, i) => {
+  let lastMonth = '', list = '';
+  tests.slice(0, cap).forEach((t, i) => {
     const d = t.ts ? new Date(t.ts) : null;
     const mk = d ? monthHead(d.getFullYear(), d.getMonth()) : tr('noTime');
-    const head = mk !== lastMonth ? `<h4 class="mh">${mk}</h4>` : '';
-    lastMonth = mk;
-    const v = metricOf(t, S.metric);
+    if (mk !== lastMonth) { list += `${lastMonth ? '</ul>' : ''}<h4 class="mh">${mk}</h4><ul class="rows">`; lastMonth = mk; }
     const srv = (t.server || tr('noServer')) + (nSpots > 1 ? ` · ${cityName(t.city)}` : '');
-    return head + `<div class="tile" style="--c:${colorFor(S.metric, v)};--tc:${typeColor(t.type)};--i:${Math.min(i, 30)}">
-      <span class="tt"><i></i>${esc(typeName(t.type))}<em>${d ? `${tr('day', { d: d.getDate() })} ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''}</em></span>
-      <span class="tv">${cell('dl', t.dl, '↓')}${cell('ul', t.ul, '↑')}${cell('ping', t.ping, '', 'ms')}</span>
-      <span class="srv" title="${esc(srv)}">${esc(srv)}</span>
-    </div>`;
-  }).join('');
+    list += `<li class="row test" style="--i:${Math.min(i, 24)}">
+      <span class="rn"><b class="num">${d ? `${tr('day', { d: d.getDate() })} ${pad(d.getHours())}:${pad(d.getMinutes())}` : tr('noTime')}</b><small>${esc(typeName(t.type))} · ${esc(srv)}</small></span>
+      ${trioInline(t)}
+    </li>`;
+  });
+  if (lastMonth) list += '</ul>';
+
   $('#detail').innerHTML = `
     <header>
       <div><h3>${esc(groupTitle(group))}</h3><p>${tr('nTests', { n: tests.length })}${nSpots > 1 ? ` · ${tr('nPlaces', { n: nSpots })}` : ''}${range ? ` · ${range}` : ''}</p></div>
       <button type="button" class="close" id="closeDetail" aria-label="${esc(tr('close'))}">${ICON.close}</button>
     </header>
-    <div class="dkpis">
-      ${['dl', 'ul', 'ping'].map((k) => `<div><b style="color:${k === S.metric ? colorFor(k, st[k]) : 'inherit'}">${fmt(st[k])}</b><span>${METRICS[k].name} ${METRICS[k].unit}</span></div>`).join('')}
-    </div>
+    <div class="trio">${trioCells(st)}</div>
+    <div class="peaks">${peakCells(st)}</div>
     ${spark}
-    <div class="tests grid">
-      ${grid}
+    <div class="tests">
+      ${list}
       ${tests.length > cap ? `<p class="foot more-note">${esc(tr('moreNote', { n: tests.length - cap }))}</p>` : ''}
     </div>`;
 }
@@ -1165,16 +1081,38 @@ const fmtMD = (ts) => { const d = new Date(ts); return `${d.getMonth() + 1}.${d.
 const fmtKm = (d) => `${Math.round(d).toLocaleString('en-US')} km`;
 const dayStart = (ts) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
+const SPANS = [['1m', 1], ['2m', 2], ['3m', 3], ['6m', 6], ['1y', 12], ['2y', 24], ['3y', 36], ['all', 0]];
+const SPEEDS = [.5, 1, 2, 4];
+const addMonths = (ts, k) => { const d = new Date(ts); d.setMonth(d.getMonth() + k); return d.getTime(); };
+function tlBounds() {
+  const ts = S.ds.tests.map((t) => t.ts).filter(Boolean);
+  return { first: Math.min(...ts), last: Math.max(...ts) };
+}
+/* Recompute the window from its span and end; the end is clamped to the data. */
+function tlWindow() {
+  const { first, last } = tlBounds();
+  const months = (SPANS.find((x) => x[0] === S.tl.span) || SPANS[4])[1];
+  if (!months) { S.tl.start = first - 1; S.tl.end = last; return; }
+  S.tl.end = Math.min(last, Math.max(S.tl.end || last, addMonths(first, months)));
+  S.tl.start = addMonths(S.tl.end, -months);
+}
+
 function renderTimeline() {
-  const years = tlYears(), y = S.tl.year, mo = S.tl.month, M = METRICS[S.metric];
-  const months = Array(12).fill(0);
-  for (const t of S.ds.tests) if (t.ts && t.year === y && S.types.has(t.type)) months[new Date(t.ts).getMonth()]++;
-  const mmax = Math.max(1, ...months);
+  const { first, last } = tlBounds();
+  const short = (SPANS.find((x) => x[0] === S.tl.span) || SPANS[4])[1] <= 3 && S.tl.span !== 'all';
+  const f = short ? fmtDate : fmtMonth;
+  const lo = Math.max(S.tl.start, first), hi = S.tl.end;
+  // density of tests across the window (shape only — the range picker does the selecting)
+  const bins = Array(28).fill(0);
+  for (const t of S.ds.tests) {
+    if (!t.ts || t.ts <= S.tl.start || t.ts > S.tl.end || !S.types.has(t.type)) continue;
+    bins[Math.min(bins.length - 1, Math.floor(((t.ts - lo) / Math.max(1, hi - lo)) * bins.length))]++;
+  }
+  const bmax = Math.max(1, ...bins);
   const segs = stays(S.tests); S.segs = segs;
   let dist = 0;
   for (let i = 1; i < S.route.length; i++) dist += km(S.route[i - 1], S.route[i]);
   const cities = new Set(S.tests.map((t) => t.city)).size;
-  const yi = years.indexOf(y);
 
   let list = '';
   segs.forEach((g, i) => {
@@ -1182,32 +1120,38 @@ function renderTimeline() {
       const d = km(segs[i - 1].tests[segs[i - 1].tests.length - 1], g.tests[0]);
       if (d >= 20) list += `<li class="move"><span class="mi">${d > 400 ? ICON.plane : ICON.car}</span><span>${fmtKm(d)}</span></li>`;
     }
-    const v = median(g.tests.map((t) => metricOf(t, S.metric)).filter((x) => x != null));
     const days = Math.round((dayStart(g.to) - dayStart(g.from)) / DAY) + 1;
-    list += `<li><button type="button" class="stay" data-seg="${i}" style="--c:${colorFor(S.metric, v)};--i:${Math.min(i, 24)}">
+    list += `<li><button type="button" class="row stay" data-seg="${i}" style="--i:${Math.min(i, 24)}">
       <span class="node"></span>
-      <span class="st-main"><b>${esc(cityName(g.city))}</b><span>${fmtMD(g.from)}${days > 1 ? ` – ${fmtMD(g.to)} · ${tr('nDays', { n: days })}` : ''} · ${tr('nTimes', { n: g.tests.length })}</span></span>
-      <span class="st-v num">${fmt(v)}<small>${M.unit}</small></span>
+      <span class="rn"><b>${esc(cityName(g.city))}</b><small>${fmtMD(g.from)}${days > 1 ? ` – ${fmtMD(g.to)} · ${tr('nDays', { n: days })}` : ''} · ${tr('nTimes', { n: g.tests.length })}</small></span>
+      ${trioInline(stats(g.tests))}
     </button></li>`;
   });
 
   $('#tl').innerHTML = `
-    <div class="tl-head">
-      <button type="button" class="tl-nav" data-dy="-1" ${yi <= 0 ? 'disabled' : ''} aria-label="${esc(tr('prevYear'))}">‹</button>
-      <div class="tl-title"><b class="num">${mo != null ? monthHead(y, mo) : tr('yearHead', { y })}</b>
-        <span>${tr('nTests', { n: S.tests.length })} · ${tr('nCities', { n: cities })}${dist >= 1 ? ` · ${tr('moved', { d: fmtKm(dist) })}` : ''}</span></div>
-      <button type="button" class="tl-nav" data-dy="1" ${yi >= years.length - 1 ? 'disabled' : ''} aria-label="${esc(tr('nextYear'))}">›</button>
+    <div class="seg spans" role="radiogroup" aria-label="${esc(tr('rangeAria'))}">
+      ${SPANS.map(([k]) => `<button type="button" role="radio" data-span="${k}" aria-checked="${S.tl.span === k}">${esc(tr(`span.${k}`))}</button>`).join('')}
     </div>
-    <div class="months" role="group" aria-label="${esc(tr('monthsAria'))}">${months.map((c, i) =>
-      `<button type="button" data-mo="${i}" aria-pressed="${mo === i}" ${c ? '' : 'disabled'} title="${esc(tr('monthTip', { m: i + 1, M: I18N.month(i), n: c }))}"><i style="--h:${((c / mmax) * 100).toFixed(0)}%"></i><span>${i + 1}</span></button>`).join('')}</div>
-    <button type="button" class="btn play-btn" id="playBtn" ${segs.length ? '' : 'disabled'}></button>
-    <ol class="stays">${list || `<li class="empty">${esc(tr('tlEmpty'))}</li>`}</ol>`;
+    <div class="tl-head">
+      <button type="button" class="round" data-dy="-1" ${S.tl.span === 'all' || S.tl.start <= first ? 'disabled' : ''} aria-label="${esc(tr('prevRange'))}">${ICON.back}</button>
+      <div class="tl-title"><b class="num">${f(lo)} – ${f(hi)}</b>
+        <span>${tr('nTests', { n: S.tests.length })} · ${tr('nCities', { n: cities })}${dist >= 1 ? ` · ${tr('moved', { d: fmtKm(dist) })}` : ''}</span></div>
+      <button type="button" class="round" data-dy="1" ${S.tl.span === 'all' || S.tl.end >= last ? 'disabled' : ''} aria-label="${esc(tr('nextRange'))}">${ICON.fwd}</button>
+    </div>
+    <div class="hist" aria-hidden="true">${bins.map((c) => `<i style="--h:${((c / bmax) * 100).toFixed(0)}%"></i>`).join('')}</div>
+    <div class="player">
+      <button type="button" class="btn prominent" id="playBtn" ${segs.length ? '' : 'disabled'}></button>
+      <div class="seg speeds" role="radiogroup" aria-label="${esc(tr('speedAria'))}">
+        ${SPEEDS.map((v) => `<button type="button" role="radio" data-speed="${v}" aria-checked="${S.playSpeed === v}">${v}×</button>`).join('')}
+      </div>
+    </div>
+    <ul class="rows stays">${list || `<li class="empty">${esc(tr('tlEmpty'))}</li>`}</ul>`;
   updatePlayBtn();
 }
 function updatePlayBtn() {
   const b = $('#playBtn'); if (!b) return;
   b.classList.toggle('on', !!S.playing);
-  b.innerHTML = S.playing ? `${ICON.stop}${esc(tr('stopPlay'))}` : `${ICON.play}${esc(tr(S.tl.month != null ? 'playMonth' : 'playYear'))}`;
+  b.innerHTML = S.playing ? `${ICON.stop}${esc(tr('stopPlay'))}` : `${ICON.play}${esc(tr('play'))}`;
 }
 function markStay(i) {
   document.querySelectorAll('#tl .stay').forEach((b) => b.classList.toggle('on', +b.dataset.seg === i));
@@ -1228,9 +1172,9 @@ function setTab(tab) {
   $('#ov').hidden = tab !== 'overview';
   $('#tl').hidden = tab !== 'timeline';
   if (tab === 'timeline') {
-    const ys = tlYears();
-    if (!ys.includes(S.tl.year)) S.tl.year = ys[ys.length - 1];
-    S.tl.month = null;
+    if (!S.tl.span) S.tl.span = '1y';
+    S.tl.end = null;
+    tlWindow();
     refilter({ animateRoute: true });
     fit(S.tests, { duration: 1800 });
   } else {
@@ -1239,9 +1183,19 @@ function setTab(tab) {
     fit(homeSpots(), { duration: 1800, maxZoom: 11 });
   }
 }
-function setPeriod(year, month) {
+function setSpan(span) {
   stopPlay(); closeDetail();
-  S.tl.year = year; S.tl.month = month;
+  S.tl.span = span; S.tl.end = null;
+  tlWindow();
+  refilter({ animateRoute: true });
+  fit(S.tests, { duration: 1600 });
+}
+function shiftWindow(dir) {
+  stopPlay(); closeDetail();
+  const months = (SPANS.find((x) => x[0] === S.tl.span) || SPANS[4])[1];
+  if (!months) return;
+  S.tl.end = addMonths(S.tl.end, dir * months);
+  tlWindow();
   refilter({ animateRoute: true });
   fit(S.tests, { duration: 1600 });
 }
@@ -1258,11 +1212,12 @@ async function startPlay() {
   const lastIdx = [];
   S.route.forEach((p, i) => { lastIdx[p.seg] = i; });
   cancelAnimationFrame(routeAnim); setRoute(0);
-  const dwell = Math.max(900, Math.min(2000, 32000 / segs.length));
+  const base = Math.max(900, Math.min(2000, 32000 / segs.length));
   const chip = $('#playChip');
   chip.classList.add('show');
   for (let i = 0; i < segs.length; i++) {
     if (token !== playToken) return;
+    const dwell = base / (S.playSpeed || 1);
     const g = segs[i];
     $('#pcDate').textContent = fmtDate(g.from) + (dayStart(g.to) > dayStart(g.from) ? ` – ${fmtMD(g.to)}` : '');
     S.playSeg = i;
@@ -1297,25 +1252,24 @@ function enterDash(ds, opts) {
   S.ds = ds; S.mode = opts.mode; S.shareId = opts.id || null; S.owner = !!opts.owner; S.sharedAt = opts.created || null; S.expires = opts.expires || null;
   S.types = new Set(ds.tests.map((t) => t.type));
   S.years = new Set(ds.tests.map((t) => t.year));
-  S.sel = null; S.citiesAll = false; S.metric = 'dl';
-  S.tab = 'overview'; S.tl = { year: null, month: null }; S.route = []; S.routeUpto = 0; S.routeData = null;
+  S.sel = null; S.citiesAll = false;
+  S.tab = 'overview'; S.tl = { span: '1y', end: null, start: 0 }; S.route = []; S.routeUpto = 0; S.routeData = null;
   S.popAt = performance.now() + (reduceMotion ? 0 : 1500);
   document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === 'overview'));
   $('#ov').hidden = false; $('#tl').hidden = true;
-  document.querySelectorAll('#metric button').forEach((b) => b.setAttribute('aria-selected', b.dataset.m === 'dl'));
   $('#detail').classList.remove('show');
   $('#panel').classList.remove('expanded');
-  $('#heroVal')._v = 0;
+  $('#trio').querySelectorAll('b').forEach((b) => { b._v = 0; });
 
-  renderActions(); renderLegend();
+  renderActions();
   setDotScale(0);
   refilter();
   S.view = 'dash'; body.dataset.view = 'dash';
   renderHead();
   setInteractive(true);
   $('#dash').setAttribute('aria-hidden', 'false');
-  positionPill(); positionTabs();
-  requestAnimationFrame(() => { positionPill(); positionTabs(); });
+  positionTabs();
+  requestAnimationFrame(positionTabs);
   setRoute(0);
 
   if (map) {
@@ -1620,7 +1574,6 @@ sheetBody.addEventListener('click', (e) => {
 });
 scrim.addEventListener('click', () => { if (!sheetLocked) closeSheet(); });
 
-$('#metric').addEventListener('click', (e) => { const b = e.target.closest('button[data-m]'); if (b) setMetric(b.dataset.m); });
 $('#types').addEventListener('click', (e) => {
   const b = e.target.closest('[data-type]'); if (!b) return;
   const t = b.dataset.type;
@@ -1649,9 +1602,15 @@ $('#cities').addEventListener('click', (e) => {
 $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
 $('#tl').addEventListener('click', (e) => {
   const nav = e.target.closest('[data-dy]');
-  if (nav) { const ys = tlYears(), i = ys.indexOf(S.tl.year) + +nav.dataset.dy; if (ys[i] != null) setPeriod(ys[i], null); return; }
-  const mo = e.target.closest('[data-mo]');
-  if (mo) { const m = +mo.dataset.mo; setPeriod(S.tl.year, S.tl.month === m ? null : m); return; }
+  if (nav) { shiftWindow(+nav.dataset.dy); return; }
+  const sp = e.target.closest('[data-span]');
+  if (sp) { setSpan(sp.dataset.span); return; }
+  const spd = e.target.closest('[data-speed]');
+  if (spd) {
+    S.playSpeed = +spd.dataset.speed;
+    document.querySelectorAll('#tl [data-speed]').forEach((b) => b.setAttribute('aria-checked', String(+b.dataset.speed === S.playSpeed)));
+    return;
+  }
   if (e.target.closest('#playBtn')) { if (S.playing) stopPlay(); else startPlay(); return; }
   const st = e.target.closest('[data-seg]');
   if (st) {
@@ -1698,7 +1657,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('resize', () => {
   if (!map) return;
-  if (S.view === 'dash') { positionPill(); positionTabs(); map.setPadding(camPadding()); }
+  if (S.view === 'dash') { positionTabs(); map.setPadding(camPadding()); }
   else { map.setPadding(landingPadding()); map.setZoom(landingZoom()); }
 });
 addEventListener('popstate', route);
@@ -1710,7 +1669,7 @@ addEventListener('langchange', () => {
   if (!sheet.hidden && sheetRender) sheetBody.innerHTML = sheetRender();
   if (!$('#loading').hidden) renderLoading();
   if (S.view !== 'dash' || !S.ds) return;
-  renderActions(); renderLegend(); renderPanel();
+  renderActions(); renderPanel();
   if (S.sel) renderDetail(S.sel);
   if (S.playing) {
     markStay(S.playSeg);
@@ -1719,14 +1678,14 @@ addEventListener('langchange', () => {
   }
   for (const m of markers.values()) m.key = '';
   scheduleMarkers();
-  positionPill(); positionTabs();
-  requestAnimationFrame(() => { positionPill(); positionTabs(); });
+  positionTabs();
+  requestAnimationFrame(positionTabs);
 });
 
 /* ════════════════════════════════════════════════════════════
    Boot
    ════════════════════════════════════════════════════════════ */
-['.title', '.seg', '.actions', '.panel', '.legend', '.zoom'].forEach((sel, i) => {
+['.title', '.actions', '.panel', '.zoom'].forEach((sel, i) => {
   const el = document.querySelector(sel); if (el) { el.classList.add('enter'); el.style.setProperty('--d', i); }
 });
 initMap();

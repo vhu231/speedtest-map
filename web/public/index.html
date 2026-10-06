@@ -28,7 +28,7 @@
 <div id="stars" aria-hidden="true"><i></i><i></i><i></i></div>
 <div id="map" data-i18n-attr="aria-label:mapLabel"></div>
 <div class="veil" aria-hidden="true"></div>
-<div class="aurora" aria-hidden="true"><i></i><i></i><i></i><b class="halo"></b></div>
+<div class="aurora" aria-hidden="true"><b class="halo"></b></div>
 
 <!-- ───────────── Landing ───────────── -->
 <section class="landing" id="landing">
@@ -37,14 +37,13 @@
     <span data-i18n="app"></span>
   </div>
 
-  <h1 class="hero"><span class="reveal grad" style="--d:1" data-i18n="app"></span></h1>
+  <h1 class="hero"><span class="reveal" style="--d:1" data-i18n="app"></span></h1>
 
   <label class="drop reveal" style="--d:4" id="drop">
     <input type="file" id="file" accept=".csv,text/csv" hidden>
-    <span class="glow" aria-hidden="true"></span>
     <span class="drop-inner">
       <span class="drop-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M12 15.5V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 14.5v3A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5v-3"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M12 15V4.5m0 0L7.8 8.7M12 4.5l4.2 4.2"/><path d="M5 13.5v4A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-4"/></svg>
       </span>
       <span class="drop-title" data-i18n-html="dropTitle"></span>
       <span class="drop-hint" data-i18n="dropHint"></span>
@@ -52,8 +51,8 @@
   </label>
 
   <div class="ghost-row reveal" style="--d:5">
-    <button type="button" class="ghost" id="help" data-i18n="helpBtn"></button>
-    <button type="button" class="ghost" id="demo"><b data-i18n="demoBtn"></b> <span aria-hidden="true">→</span></button>
+    <button type="button" class="pill" id="help" data-i18n="helpBtn"></button>
+    <button type="button" class="pill" id="demo" data-i18n="demoBtn"></button>
   </div>
 
   <footer class="site-foot reveal" style="--d:6">
@@ -78,7 +77,6 @@
 <!-- ───────────── Sheet (choice / sharing / done / error) ───────────── -->
 <div class="scrim" id="scrim" hidden></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
-  <span class="glow" aria-hidden="true"></span>
   <div class="sheet-body" id="sheetBody"></div>
 </div>
 
@@ -95,23 +93,14 @@
       </div>
     </div>
 
-    <div class="seg glass" id="metric" role="tablist" data-i18n-attr="aria-label:metricAria">
-      <span class="seg-pill" aria-hidden="true"></span>
-      <button type="button" role="tab" data-m="dl" aria-selected="true" data-i18n="m.dl"></button>
-      <button type="button" role="tab" data-m="ul" aria-selected="false" data-i18n="m.ul"></button>
-      <button type="button" role="tab" data-m="ping" aria-selected="false" data-i18n="m.ping"></button>
-    </div>
-
-    <div class="actions" id="actions"></div>
+    <div class="actions glass" id="actions" role="toolbar"></div>
   </header>
 
   <aside class="panel glass" id="panel">
     <button type="button" class="handle" id="handle" data-i18n-attr="aria-label:expandPanel"><i></i></button>
-    <div class="kpi-hero">
-      <span class="kpi-label" id="heroLabel"></span>
-      <div class="kpi-big"><b class="num" id="heroVal">0</b><small id="heroUnit">Mbps</small></div>
-    </div>
-    <div class="kpis" id="kpis"></div>
+    <div class="trio big" id="trio"></div>
+    <div class="peaks" id="peaks"></div>
+    <p class="meta" id="meta"></p>
 
     <div class="tabs" id="tabs" role="tablist" data-i18n-attr="aria-label:viewsAria">
       <span class="tabs-pill" aria-hidden="true"></span>
@@ -132,12 +121,12 @@
 
       <div class="group">
         <h2 data-i18n="byType"></h2>
-        <div class="bars" id="netBars"></div>
+        <ul class="rows" id="netBars"></ul>
       </div>
 
       <div class="group">
         <h2 data-i18n="byCity"></h2>
-        <ol class="cities" id="cities"></ol>
+        <ul class="rows" id="cities"></ul>
       </div>
     </div>
 
@@ -147,7 +136,6 @@
     <p class="foot links"><a href="https://github.com/vhu231/speedtest-map" target="_blank" rel="noopener">GitHub</a> · <a href="https://github.com/vhu231/speedtest-map/blob/main/LICENSE" target="_blank" rel="noopener" data-i18n="license"></a> · <button type="button" data-help="privacy" data-i18n="privacy"></button> · <span class="lang" data-lang-switch></span></p>
   </aside>
 
-  <div class="legend glass" id="legend"></div>
 
   <div class="zoom glass">
     <button type="button" id="zin" data-i18n-attr="aria-label:zoomIn;title:zoomIn">+</button>

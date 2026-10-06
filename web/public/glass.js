@@ -13,17 +13,18 @@ const dark = matchMedia('(prefers-color-scheme: dark)');
 
 /* Which elements become glass, and how. bevel/thick/frost in CSS px. */
 const TARGETS = [
-  ['.panel', { frost: 16, tint: .5, bevel: 26, thick: 22 }],
-  ['.detail', { frost: 16, tint: .5, bevel: 26, thick: 22 }],
-  ['.drop-inner', { frost: 3, tint: .22, bevel: 30, thick: 34 }],
-  ['.title', { frost: 1.5, tint: .2, bevel: 20, thick: 20 }],
-  ['.seg', { frost: 1.5, tint: .2, bevel: 20, thick: 20 }],
-  ['.actions .btn.glass', { frost: 1.5, tint: .2, bevel: 18, thick: 18 }],
-  ['.zoom', { frost: 2, tint: .22, bevel: 16, thick: 16 }],
-  ['.legend', { frost: 6, tint: .32, bevel: 18, thick: 18 }],
-  ['.playchip', { frost: 2, tint: .22, bevel: 18, thick: 18 }],
-  ['.site-foot', { frost: 2, tint: .22, bevel: 16, thick: 16 }],
-  ['.tip', { frost: 10, tint: .45, bevel: 14, thick: 12 }],
+  // content-heavy surfaces: frosted so text stays legible
+  ['.panel', { frost: 18, tint: .46, bevel: 24, thick: 20 }],
+  ['.detail', { frost: 18, tint: .46, bevel: 24, thick: 20 }],
+  ['.tip', { frost: 12, tint: .5, bevel: 14, thick: 12 }],
+  // controls: clear glass, the content shows through bent at the rim
+  ['.drop-inner', { frost: 2.5, tint: .16, bevel: 30, thick: 34 }],
+  ['.title', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
+  ['#actions', { frost: 1.5, tint: .16, bevel: 20, thick: 20 }],
+  ['.zoom', { frost: 1.5, tint: .16, bevel: 18, thick: 18 }],
+  ['.playchip', { frost: 2, tint: .2, bevel: 18, thick: 18 }],
+  ['.site-foot', { frost: 2, tint: .18, bevel: 16, thick: 16 }],
+  ['.landing .pill', { frost: 1.5, tint: .14, bevel: 16, thick: 16 }],
 ];
 
 const vert = /* glsl */`
