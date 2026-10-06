@@ -581,7 +581,7 @@ body[data-view="dash"] .dash .enter { opacity: 1; transform: none; filter: none;
 
 /* Inspector (detail card) */
 .detail {
-  position: absolute; right: 16px; top: 84px; width: 420px; max-height: calc(100vh - 84px - 120px);
+  position: absolute; right: 16px; top: 84px; width: 420px; max-height: calc(100vh - 84px - 200px);
   border-radius: var(--r-xl); display: flex; flex-direction: column; overflow: hidden;
   opacity: 0; transform: translateX(32px) scale(.97); filter: blur(10px); pointer-events: none;
   transition: opacity .4s var(--ease-out), transform .8s var(--spring), filter .4s var(--ease-out);
@@ -598,14 +598,9 @@ body[data-view="dash"] .dash .enter { opacity: 1; transform: none; filter: none;
 .spark circle { fill: currentColor; fill-opacity: .55; animation: dotIn .7s var(--spring) both; transform-box: fill-box; transform-origin: center; }
 @keyframes dotIn { from { transform: scale(0); opacity: 0; } }
 .spark .axis { font: 500 10px var(--sans); fill: var(--label-3); }
-.tests { overflow-y: auto; padding: 8px 16px 24px; scrollbar-width: thin; flex: 1 1 auto; min-height: 0; }
-.tests .mh {
-  position: sticky; top: 0; z-index: 2; margin: 0 -16px; padding: 20px 34px 10px;
-  background: color-mix(in srgb, var(--glass) 80%, var(--bg)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
-}
-.gl-live .tests .mh { background: rgba(22, 22, 24, .72); }
-@media (prefers-color-scheme: light) { .gl-live .tests .mh { background: rgba(250, 250, 252, .8); } }
-.tests .rows + .mh { margin-top: 8px; }
+.tests { overflow-y: auto; padding: 8px 24px 24px; scrollbar-width: thin; flex: 1 1 auto; min-height: 0; }
+.tests .mh { margin-top: 24px; }
+.tests .mh:first-child { margin-top: 16px; }
 .row.test { animation: fadeUp .5s var(--spring-soft) backwards; animation-delay: calc(var(--i, 0) * 16ms); }
 .more-note { text-align: center; }
 
