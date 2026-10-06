@@ -30,8 +30,8 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   color-scheme: dark;
 }
-:root:lang(zh-TW) {
-  --sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", "PingFang TC", "Microsoft JhengHei UI", system-ui, sans-serif;
+:root:lang(zh-HK) {
+  --sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", "PingFang HK", "PingFang TC", "Microsoft JhengHei UI", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: light) {
   :root {
@@ -851,3 +851,8 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
 .sheet h4.sub { margin: 22px 0 0; }
 body:not([data-view="dash"]) .maplibregl-canvas-container.maplibregl-interactive { cursor: default; }
 .privacy a { color: var(--accent); text-decoration: none; }
+
+/* Landing hero is just the name; the small brand label only appears on the shared-link loading screen. */
+.hero { font-size: clamp(64px, 12vw, 148px); line-height: 1.02; letter-spacing: -.05em; }
+.hero .grad { padding: 0 .04em .08em; }
+.landing:not(.is-loading) .brand { display: none; }

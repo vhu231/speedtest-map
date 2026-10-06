@@ -1,4 +1,4 @@
-// UI strings for zh-CN (default), zh-TW and en, plus language detection and switching.
+// UI strings for zh-CN (default), zh-HK (Hong Kong Traditional) and en, plus language detection and switching.
 // Values may be { one, other } for English plurals (chosen by params.n).
 // Markup opts in with data-i18n (text), data-i18n-html (trusted markup) and
 // data-i18n-attr="aria-label:key;title:key2". Elements with data-lang-switch get the switcher.
@@ -11,9 +11,6 @@ const DICT = {
     app: '测速地图',
     metaDesc: '把 Speedtest 导出的 CSV 放到地图上，本机查看或生成分享链接。',
     mapLabel: '测速地点地图',
-    hero1: '每一次测速，',
-    hero2: '都落在地图上。',
-    lede: '把 Speedtest 导出的 CSV 拖进来。数据只在你的浏览器里解析——<br class="br">只有当你选择分享时，才会上传。',
     dropTitle: '拖入 CSV，或<u>点按选择文件</u>',
     dropHint: '从 speedtest.net 的测试结果页导出',
     helpBtn: '怎么导出 CSV？',
@@ -127,50 +124,47 @@ const DICT = {
     stopped: '已停止分享，云端数据已删除',
   },
 
-  'zh-TW': {
+  'zh-HK': {
     'lang.label': '語言',
     app: '測速地圖',
-    metaDesc: '把 Speedtest 匯出的 CSV 放到地圖上，在本機查看或產生分享連結。',
+    metaDesc: '把 Speedtest 匯出的 CSV 放到地圖上，在本機查看或生成分享連結。',
     mapLabel: '測速地點地圖',
-    hero1: '每一次測速，',
-    hero2: '都落在地圖上。',
-    lede: '把 Speedtest 匯出的 CSV 拖進來。資料只在你的瀏覽器裡解析——<br class="br">只有在你選擇分享時，才會上傳。',
-    dropTitle: '拖入 CSV，或<u>點按選擇檔案</u>',
-    dropHint: '從 speedtest.net 的測試結果頁面匯出',
-    helpBtn: '怎麼匯出 CSV？',
-    demoBtn: '沒有檔案？先看看範例',
+    dropTitle: '拖入 CSV，或<u>按此選擇檔案</u>',
+    dropHint: '從 speedtest.net 的測試結果頁匯出',
+    helpBtn: '怎樣匯出 CSV？',
+    demoBtn: '沒有檔案？先看看示範',
     license: 'MIT 授權',
-    privacy: '資料與隱私',
+    privacy: '數據與私隱',
     loadingShared: '正在載入分享的測速地圖…',
-    toHome: '到首頁上傳自己的 CSV',
-    home: '回到首頁',
-    metricAria: '地圖依什麼上色',
-    'm.dl': '下載', 'm.ul': '上傳', 'm.ping': '延遲',
-    'median.dl': '下載中位數', 'median.ul': '上傳中位數', 'median.ping': '延遲中位數',
+    toHome: '回主頁上載自己的 CSV',
+    home: '返回主頁',
+    metricAria: '地圖按甚麼上色',
+    'm.dl': '下載', 'm.ul': '上載', 'm.ping': '延遲',
+    'median.dl': '下載中位數', 'median.ul': '上載中位數', 'median.ping': '延遲中位數',
     expandPanel: '展開面板',
     viewsAria: '檢視',
     overview: '概覽',
-    timeline: '時間軸',
-    network: '網路',
+    timeline: '時間線',
+    network: '網絡',
     years: '年份',
-    byType: '依網路類型 · 中位數',
-    byCity: '依城市 · 中位數',
+    byType: '按網絡類型 · 中位數',
+    byCity: '按城市 · 中位數',
     zoomIn: '放大', zoomOut: '縮小', showAll: '顯示所有地點',
-    ethernet: '乙太網路',
+    ethernet: '以太網',
     unknown: '未知',
-    demoName: '範例資料',
+    demoName: '示範數據',
     sharedName: '分享的測速地圖',
-    'err.noRows': '檔案裡沒有測速紀錄',
-    'err.noCols': '找不到經緯度或下載速度這幾欄，這看起來不像是 Speedtest 匯出的 CSV',
-    'err.noGeo': '沒有附座標的測速紀錄，無法顯示在地圖上',
-    'err.notCsv': '這看起來不像是 Speedtest 匯出的 CSV',
+    'err.noRows': '檔案裡沒有測速記錄',
+    'err.noCols': '找不到經緯度或下載速度這幾欄，看來不像是 Speedtest 匯出的 CSV',
+    'err.noGeo': '沒有帶坐標的測速記錄，無法在地圖上顯示',
+    'err.notCsv': '看來不像是 Speedtest 匯出的 CSV',
     'err.tooBig': '檔案太大，上限為 5 MB',
-    'err.upload': '上傳失敗（{s}）',
+    'err.upload': '上載失敗（{s}）',
     'err.notFound': '這個分享不存在，或已被刪除',
     'err.load': '載入失敗（{s}）',
     'err.delete': '刪除失敗（{s}）',
-    'err.offline': '連不上伺服器，請檢查網路後再試',
-    'err.offlineShort': '連不上伺服器',
+    'err.offline': '連接不到伺服器，請檢查網絡後再試',
+    'err.offlineShort': '連接不到伺服器',
     'err.shareTooBig': '檔案超過 5 MB，無法分享。可以先在本機查看。',
     'err.unreadable': '無法讀取這個檔案',
     markerAria: '{n} 次測試，{metric} {v} {unit}',
@@ -180,19 +174,19 @@ const DICT = {
     nPlaces: '{n} 個地點',
     nTimes: '{n} 次',
     nTests: '{n} 次測試',
-    nCities: '{n} 座城市',
+    nCities: '{n} 個城市',
     nDays: '{n} 天',
     'kpi.tests': '測試', 'kpi.testsUnit': '次',
     'kpi.places': '地點', 'kpi.placesUnit': '處',
     showAllN: '顯示全部 {n} 個',
-    showLess: '收合',
+    showLess: '收起',
     sentenceGap: '',
-    'foot.city': '城市依座標就近歸類，深港交界一帶可能不準確。',
-    'foot.noPing': '{n} 筆紀錄沒有延遲資料，統計延遲時已略過。',
-    'foot.noGeo': '{n} 筆紀錄沒有座標，未顯示在地圖上。',
-    'foot.shared': '分享的資料不含 IP 位址。',
-    legend: '{m}（{unit}）· 角標為測試次數',
-    'act.new': '新檔案', 'act.share': '分享', 'act.useMine': '用我自己的資料',
+    'foot.city': '城市按坐標就近歸類，深港交界一帶可能不準確。',
+    'foot.noPing': '{n} 條記錄沒有延遲數據，計算延遲時已略去。',
+    'foot.noGeo': '{n} 條記錄沒有坐標，沒有在地圖上顯示。',
+    'foot.shared': '分享的數據不包含 IP 地址。',
+    legend: '{m}（{unit}）· 角標是測試次數',
+    'act.new': '新檔案', 'act.share': '分享', 'act.useMine': '用我自己的數據',
     'act.stop': '停止分享', 'act.copy': '複製連結', 'act.makeMine': '做一張我自己的',
     monthHead: '{y} 年 {m} 月',
     yearHead: '{y} 年',
@@ -201,51 +195,51 @@ const DICT = {
     noPing: '無延遲',
     noServer: '未知伺服器',
     close: '關閉',
-    moreNote: '還有 {n} 筆，放大地圖查看個別地點',
+    moreNote: '還有 {n} 條，放大地圖查看個別地點',
     prevYear: '上一年', nextYear: '下一年',
     moved: '移動約 {d}',
-    monthsAria: '依月份篩選',
+    monthsAria: '按月份篩選',
     monthTip: '{m} 月 · {n} 次',
-    stopPlay: '停止播放',
-    playYear: '播放這一年',
-    playMonth: '播放這個月',
-    tlEmpty: '這段期間沒有附時間的測速紀錄',
-    noTimeData: '這份資料沒有時間資訊',
-    'mode.shared': '已分享', 'mode.demo': '範例', 'mode.local': '僅限本機',
+    stopPlay: '停止回放',
+    playYear: '回放這一年',
+    playMonth: '回放這個月',
+    tlEmpty: '這段時間沒有帶時間的測速記錄',
+    noTimeData: '這份數據沒有時間資料',
+    'mode.shared': '已分享', 'mode.demo': '示範', 'mode.local': '只限本機',
     parsedLocally: '{kb} KB · 已在本機解析',
-    statTests: '次測試', statPlaces: '個地點', statSpan: '時間範圍',
-    nextQ: '接下來想怎麼看？',
+    statTests: '次測試', statPlaces: '個地點', statSpan: '時間跨度',
+    nextQ: '接下來想怎樣看？',
     localTitle: '在本機查看',
-    localDesc: '資料只會留在這台裝置上，不會上傳到任何地方。',
-    shareTitle: '產生分享連結',
-    shareDesc: '上傳到雲端，任何拿到連結的人都能看。IP 位址會先移除。',
+    localDesc: '數據只留在這部裝置上，不會上載到任何地方。',
+    shareTitle: '生成分享連結',
+    shareDesc: '上載到雲端，任何拿到連結的人都能看到。IP 地址會先移除。',
     pickAnother: '換一個檔案',
-    sharingTitle: '正在產生連結…',
-    sharingSub: '正在將移除 IP 的 CSV 上傳到雲端',
-    doneTitle: '連結已產生',
-    doneSub: '任何拿到連結的人都能看到這張地圖。你可以隨時在地圖頁面停止分享。',
+    sharingTitle: '正在生成連結…',
+    sharingSub: '正在把移除了 IP 的 CSV 上載到雲端',
+    doneTitle: '連結已生成',
+    doneSub: '任何拿到連結的人都能看到這張地圖。你可以隨時在地圖頁停止分享。',
     shareLink: '分享連結',
     copy: '複製',
     nativeShare: '分享…',
     done: '完成',
-    openMap: '開啟地圖',
-    errTitle: '發生了一點問題',
+    openMap: '打開地圖',
+    errTitle: '出了點問題',
     retry: '再試一次',
     ok: '好',
     copied: '已複製連結',
     copyFail: '複製失敗，請手動選取',
     pickCsv: '請選擇 .csv 檔案',
     fileTooBig: '檔案太大了',
-    'help.1': '開啟 {link} 並登入你的 Speedtest 帳號。',
-    'help.2': '在「結果歷史紀錄」右上角點選 {kbd}，瀏覽器會下載一個 CSV 檔案。',
-    'help.3': '把這個 CSV 拖進本頁，或點選上傳框來選擇它。',
-    'priv.1': '選擇「在本機查看」時，CSV 只會在你的瀏覽器裡解析，不會上傳。',
-    'priv.2': '選擇「產生分享連結」時，會先刪除內網和外網 IP 兩欄，再把其餘內容存到 Cloudflare R2；任何拿到連結的人都能看到。',
-    'priv.3': '在同一個瀏覽器裡可以隨時「停止分享」，連結會立即失效，雲端資料也會一併刪除。',
-    'priv.4': '原始碼以 MIT 授權在 {gh} 公開。',
+    'help.1': '打開 {link} 並登入你的 Speedtest 帳戶。',
+    'help.2': '在「結果歷史記錄」右上角按 {kbd}，瀏覽器會下載一個 CSV 檔案。',
+    'help.3': '把這個 CSV 拖進本頁，或按上載框選擇它。',
+    'priv.1': '選擇「在本機查看」時，CSV 只會在你的瀏覽器裡解析，不會上載。',
+    'priv.2': '選擇「生成分享連結」時，會先刪除內網和外網 IP 兩欄，再把其餘內容存到 Cloudflare R2；任何拿到連結的人都能看到。',
+    'priv.3': '在同一個瀏覽器裡可以隨時「停止分享」，連結會即時失效，雲端數據亦會一併刪除。',
+    'priv.4': '源代碼以 MIT 授權在 {gh} 公開。',
     gotIt: '知道了',
-    confirmStop: '停止分享後，這個連結會立刻失效，資料也會從雲端刪除。確定嗎？',
-    stopped: '已停止分享，雲端資料已刪除',
+    confirmStop: '停止分享後，這個連結會即時失效，數據亦會從雲端刪除。確定嗎？',
+    stopped: '已停止分享，雲端數據已刪除',
   },
 
   en: {
@@ -253,9 +247,6 @@ const DICT = {
     app: 'Speedtest Map',
     metaDesc: 'Put your Speedtest CSV export on a map — view it on your device or share a link.',
     mapLabel: 'Map of test locations',
-    hero1: 'Every speed test,',
-    hero2: 'right on the map.',
-    lede: 'Drop in your Speedtest CSV export. It stays in your browser&nbsp;—<br class="br"> nothing is uploaded unless you choose to share.',
     dropTitle: 'Drop a CSV here, or <u>choose a file</u>',
     dropHint: 'Export it from your results page on speedtest.net',
     helpBtn: 'How do I export the CSV?',
@@ -370,14 +361,18 @@ const DICT = {
   },
 };
 
-const LANGS = [['zh-CN', '简', '简体中文'], ['zh-TW', '繁', '繁體中文'], ['en', 'EN', 'English']];
+const LANGS = [['zh-CN', '简', '简体中文'], ['zh-HK', '繁', '繁體中文'], ['en', 'EN', 'English']];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const KEY = 'stm.lang';
 
 function detect() {
-  try { const s = localStorage.getItem(KEY); if (DICT[s]) return s; } catch {}
+  try {
+    const s = localStorage.getItem(KEY);
+    if (s === 'zh-TW') return 'zh-HK';           // earlier builds stored the Taiwan code
+    if (DICT[s]) return s;
+  } catch {}
   const l = String((navigator.languages && navigator.languages[0]) || navigator.language || '').toLowerCase();
-  if (/^zh[-_](tw|hk|mo|hant)(?![a-z])/.test(l)) return 'zh-TW';
+  if (/^zh[-_](tw|hk|mo|hant)(?![a-z])/.test(l)) return 'zh-HK';
   if (/^zh(?![a-z])/.test(l)) return 'zh-CN';
   return 'en';
 }
@@ -392,13 +387,13 @@ function t(key, params) {
   return params ? v.replace(/\{(\w+)\}/g, (m, k) => (params[k] != null ? params[k] : m)) : v;
 }
 
-/* City names: cities.js rows are [zh-CN, lat, lon, en, zh-TW]; the zh-CN name is the stable key. */
+/* City names: cities.js rows are [zh-CN, lat, lon, en, zh-HK]; the zh-CN name is the stable key. */
 let cityMap = null;
 function city(name) {
   if (!cityMap) cityMap = new Map((window.CITIES || []).map((c) => [c[0], c]));
   const c = cityMap.get(name);
   if (!c) return name;
-  return (lang === 'en' ? c[3] : lang === 'zh-TW' ? c[4] : c[0]) || c[0];
+  return (lang === 'en' ? c[3] : lang === 'zh-HK' ? c[4] : c[0]) || c[0];
 }
 
 function apply(root = document) {

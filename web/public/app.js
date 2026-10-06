@@ -291,7 +291,7 @@ const STYLES = {
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
 };
-let map = null, dotScale = 0, spin = { on: true, paused: 0 };
+let map = null, dotScale = 0;
 
 // The map canvas is taller than the viewport (see #map in styles.css); EXTRA is the hidden part below the fold.
 // Keeping one canvas lets every view change be a single animated camera move instead of a resize.
@@ -321,9 +321,6 @@ function initMap() {
   map.on('style.load', onStyle);
   map.once('load', () => setTimeout(() => body.classList.add('map-ready'), 80));
   map.on('error', (e) => { console.warn('map', e && e.error); body.classList.add('map-ready'); });
-  ['dragstart', 'rotatestart', 'pitchstart', 'zoomstart'].forEach((ev) => map.on(ev, (e) => { if (e.originalEvent) spin.paused = performance.now() + 2500; }));
-  map.on('mousedown', () => (spin.paused = performance.now() + 2500));
-  map.on('touchstart', () => (spin.paused = performance.now() + 2500));
   map.on('render', scheduleMarkers);
   map.on('sourcedata', (e) => { if (e.sourceId === 'spots') scheduleMarkers(); });
   map.on('click', (e) => {
@@ -334,7 +331,7 @@ function initMap() {
   let last = performance.now();
   const loop = (now) => {
     const dt = Math.min(64, now - last); last = now;
-    if (S.view === 'landing' && spin.on && now > spin.paused && !map.isMoving() && !reduceMotion) {
+    if (S.view === 'landing' && !map.isMoving() && !reduceMotion) {
       const c = map.getCenter(); c.lng += dt * 0.0045; map.setCenter(c);
     }
     requestAnimationFrame(loop);
