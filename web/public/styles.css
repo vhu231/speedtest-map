@@ -101,14 +101,14 @@ svg { flex: none; }
 .glass::before {
   /* rim light, strongest at the top-left and bottom-right corners */
   content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; z-index: 2;
-  background: linear-gradient(135deg, rgba(255,255,255,.5), rgba(255,255,255,.06) 30%, transparent 50%, rgba(255,255,255,.05) 70%, rgba(255,255,255,.3));
+  background: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.03) 30%, transparent 50%, rgba(255,255,255,.02) 70%, rgba(255,255,255,.08));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude;
 }
 .glass::after {
   /* specular glint under the pointer */
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 2;
-  background: radial-gradient(160px circle at var(--mx, 30%) var(--my, -40%), rgba(255,255,255,.12), transparent 60%);
+  background: radial-gradient(160px circle at var(--mx, 30%) var(--my, -40%), rgba(255,255,255,.05), transparent 60%);
   opacity: 0; transition: opacity .5s var(--ease-out);
 }
 .glass:hover::after { opacity: 1; }

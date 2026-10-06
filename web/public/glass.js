@@ -95,15 +95,15 @@ const frag = /* glsl */`
     // body tint keeps text legible — mixed in premultiplied space
     col = col * (1.0 - uTintA) + vec4(uTint * uTintA, uTintA);
 
-    // light: Fresnel rim, two-corner specular, pointer glint
+    // light: kept to a hairline at the very edge, as on Apple's Liquid Glass — strongest where the
+    // edge faces the light (top-left), faint on the opposite corner; no glowing band across the bevel
     vec2 L = normalize(vec2(-0.55, -0.85));       // from the top-left (y down)
-    float rimBand = smoothstep(uBevel * 0.7, 0.0, inside);
-    float spec = rimBand * (0.55 * pow(max(dot(g, L), 0.0), 2.0) + 0.28 * pow(max(dot(g, -L), 0.0), 2.0));
-    float edge = smoothstep(1.6 * uDpr, 0.0, inside) * 0.38;
-    float fres = pow(1.0 - t, 3.0) * 0.10;
+    float hair = smoothstep(2.0 * uDpr, 0.0, inside);
+    float spec = hair * (0.20 * pow(max(dot(g, L), 0.0), 3.0) + 0.06 * pow(max(dot(g, -L), 0.0), 3.0));
+    float edge = smoothstep(1.0 * uDpr, 0.0, inside) * 0.06;
     vec2 dm = vPx - uMouse;
-    float glint = exp(-dot(dm, dm) / (2.0 * pow(70.0 * uDpr, 2.0))) * 0.13;
-    float light = spec + edge + fres + glint;
+    float glint = exp(-dot(dm, dm) / (2.0 * pow(60.0 * uDpr, 2.0))) * 0.04;
+    float light = spec + edge + glint;
     col.rgb += vec3(light);
     col.a = min(1.0, col.a + light);
 
