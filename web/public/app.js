@@ -76,6 +76,7 @@ const ICON = {
   fwd: '<svg viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor" stroke="none"/></svg>',
   stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg>',
+  sidebar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="3.2"/><path d="M9.5 5v14"/></svg>',
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -815,9 +816,96 @@ function pulse(lngLat) {
 
 function uiPadding() {
   // Room for the controls plus the marker itself: its pill sits on the point, its name hangs ~60 px below.
-  if (isCompact()) return { top: 190, bottom: 250, left: 72, right: 72 };
-  return { top: 150, bottom: 140, left: 464, right: S.sel ? 500 : 130 };
+  const mini = $('#panel').classList.contains('mini');
+  if (isCompact()) return { top: 190, bottom: mini ? 130 : 250, left: 72, right: 72 };
+  return { top: 150, bottom: 140, left: mini ? 80 : 464, right: S.sel ? 500 : 130 };
 }
+
+/* ════════════════════════════════════════════════════════════
+   Panel ⇄ button
+   The panel can shrink into a small glass capsule (the three medians and a sidebar icon) and grow back.
+   Only the panel's own box animates — width, height, corner radius — so the three.js glass, which
+   follows the element's rect every frame, morphs with it like one piece of liquid glass.
+   On phones the bottom sheet has three detents — expanded, peek (176 px) and the capsule — and
+   follows the finger; the detail sheet can be swiped down to close.
+   ════════════════════════════════════════════════════════════ */
+function sizeFab() {
+  const w = $('#fabIn').offsetWidth;
+  if (w) $('#panel').style.setProperty('--mini-w', `${Math.ceil(w) + 36}px`);
+}
+function setPanelMini(on) {
+  const el = $('#panel');
+  if (el.classList.contains('mini') === on) return;
+  if (on) { el.classList.remove('expanded'); el.scrollTop = 0; }
+  el.classList.toggle('mini', on);
+  el.setAttribute('aria-expanded', String(!on));
+  sizeFab();
+  if (map && S.view === 'dash') map.easeTo({ padding: camPadding(), duration: reduceMotion ? 0 : 900, easing: easeOutExpo });
+  setTimeout(() => map && placeLabels(), 750);
+}
+$('#panelMin').addEventListener('click', () => setPanelMini(true));
+$('#panelFab').addEventListener('click', () => { setPanelMini(false); if (isCompact()) setTimeout(() => $('#panelFab').blur(), 0); });
+
+/* A vertical drag on a sheet: follows the finger with rubber-banding past the ends, then hands the
+   release position and velocity (px/ms) to `done`. `canStart(dy, e)` decides whether this touch is a
+   sheet drag or should be left to the content's own scrolling. */
+function sheetDrag(el, { base, canStart, done }) {
+  let g = null;
+  el.addEventListener('touchstart', (e) => {
+    if (!isCompact() || e.touches.length > 1) { g = null; return; }
+    const y = e.touches[0].clientY;
+    g = { y0: y, base: base(), drag: false, hist: [[y, performance.now()]] };
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    const y = e.touches[0].clientY, dy = y - g.y0;
+    if (!g.drag) {
+      if (Math.abs(dy) < 8) return;
+      if (!canStart(dy, e)) { g = null; return; }
+      g.drag = true; g.y0 = y; el.classList.add('dragging');
+    }
+    e.preventDefault();
+    const d = y - g.y0;
+    let off = g.base + d;
+    if (off < 0) off = -Math.pow(-off, .7);                          // rubber band above the top detent
+    el.style.transform = `translateY(${off}px)`;
+    g.off = off;
+    g.hist.push([y, performance.now()]); if (g.hist.length > 5) g.hist.shift();
+  }, { passive: false });
+  const end = () => {
+    if (!g) return;
+    const was = g; g = null;
+    if (!was.drag) return;
+    const [a, b] = [was.hist[0], was.hist[was.hist.length - 1]];
+    const v = b[1] > a[1] ? (b[0] - a[0]) / (b[1] - a[1]) : 0;
+    el.classList.remove('dragging');
+    el.style.transform = '';
+    done(was.off ?? was.base, v);
+  };
+  el.addEventListener('touchend', end);
+  el.addEventListener('touchcancel', end);
+}
+const PEEK = 176;
+sheetDrag($('#panel'), {
+  base: () => { const el = $('#panel'); return el.classList.contains('expanded') ? 0 : el.offsetHeight - PEEK; },
+  canStart: (dy, e) => {
+    const el = $('#panel');
+    if (el.classList.contains('mini') || $('#detail').classList.contains('show')) return false;
+    if (!el.classList.contains('expanded') || e.target.closest('.handle')) return true;
+    return el.scrollTop <= 0 && dy > 0;                              // expanded: pull down only from the top
+  },
+  done: (off, v) => {
+    const el = $('#panel'), peek = el.offsetHeight - PEEK;
+    const to = off + v * 220;                                        // where the flick would carry it
+    if (to > peek + 70) { setPanelMini(true); return; }
+    el.classList.toggle('expanded', to < peek / 2);
+  },
+});
+sheetDrag($('#detail'), {
+  base: () => 0,
+  canStart: (dy, e) => dy > 0 && (!e.target.closest('.tests') || $('#detail .tests').scrollTop <= 0),
+  done: (off, v) => { if (off + v * 220 > 120) closeDetail(); },
+});
 function camPadding() { const p = uiPadding(); return { ...p, bottom: p.bottom + EXTRA() }; }
 const mercX = (lon) => (lon + 180) / 360;
 const mercY = (lat) => (1 - Math.asinh(Math.tan((lat * Math.PI) / 180)) / Math.PI) / 2;
@@ -1021,6 +1109,8 @@ function renderPanel() {
   }
   $('#peaks').innerHTML = peakCells(st);
   $('#meta').textContent = `${tr('nTests', { n: st.n })} · ${tr('nPlaces', { n: S.spots.length })}`;
+  $('#fabIn').innerHTML = ICON.sidebar + trioInline(st);
+  sizeFab();
 
   // by network type — honours the year filter and lists every type so they can be compared
   const byYear = S.ds.tests.filter((t) => S.years.has(t.year));
@@ -1348,7 +1438,7 @@ function enterDash(ds, opts) {
   document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === 'overview'));
   $('#ov').hidden = false; $('#tl').hidden = true;
   $('#detail').classList.remove('show');
-  $('#panel').classList.remove('expanded');
+  $('#panel').classList.remove('expanded', 'mini');
   $('#trio').querySelectorAll('b').forEach((b) => { b._v = 0; });
 
   renderActions();

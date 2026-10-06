@@ -40,6 +40,7 @@
   --spring: cubic-bezier(.34, 1.36, .4, 1);
   --spring-soft: cubic-bezier(.22, 1, .36, 1);
   --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --morph: cubic-bezier(.32, .72, 0, 1);   /* panel ⇄ button: the iOS sheet curve, no overshoot on size */
 }
 :root:lang(zh-HK) {
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang HK", "PingFang TC", "Microsoft JhengHei UI", system-ui, sans-serif;
@@ -84,7 +85,7 @@ a { color: inherit; }
 .num { font-variant-numeric: tabular-nums; }
 [hidden] { display: none !important; }
 svg { flex: none; }
-.ico, .btn svg, .actions svg, .zoom svg, .round svg, .close svg, .choice .ci svg, .chip .ck {
+.ico, .btn svg, .actions svg, .zoom svg, .round svg, .close svg, .choice .ci svg, .chip .ck, .panel-min svg, .fab-in svg {
   fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
 }
 
@@ -556,13 +557,42 @@ body[data-view="dash"] .dash .enter { opacity: 1; transform: none; filter: none;
 
 /* Sidebar */
 .panel {
-  position: absolute; left: 16px; top: 84px; bottom: 16px; width: 384px;
+  position: absolute; left: 16px; top: 84px; width: 384px; height: calc(100vh - 100px); height: calc(100dvh - 100px);
   border-radius: var(--r-xl); padding: 24px 24px 20px;
   overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
   transform: translateX(-32px);
 }
+/* the box itself morphs between panel and capsule; see "Panel ⇄ button" in app.js */
+.dash .panel.enter {
+  transition: opacity .7s var(--ease-out), transform 1s var(--spring), filter .7s var(--ease-out),
+    width .7s var(--morph), height .7s var(--morph), border-radius .7s var(--morph),
+    padding .5s var(--ease-out), left .7s var(--morph), right .7s var(--morph), bottom .7s var(--morph);
+  transition-delay: calc(var(--d, 0) * 80ms + 350ms), calc(var(--d, 0) * 80ms + 350ms), calc(var(--d, 0) * 80ms + 350ms), 0s, 0s, 0s, 0s, 0s, 0s, 0s;
+}
+.panel > * { transition: opacity .3s var(--ease-out); }
+.panel.mini { width: var(--mini-w, 220px); height: 52px; border-radius: 26px; padding: 0; overflow: hidden; }
+.panel.mini > :not(.panel-fab) { opacity: 0; pointer-events: none; visibility: hidden; transition: opacity .15s, visibility 0s .15s; }
+.panel-min {
+  position: absolute; top: 12px; right: 12px; z-index: 2; width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--label-2); transition: background .2s, color .2s, transform .45s var(--spring);
+}
+.panel-min::before { content: ""; position: absolute; inset: -4px; }   /* 44 px hit area */
+.panel-min:hover { background: var(--fill-2); color: var(--label); }
+.panel-min:active { transform: scale(.88); transition-duration: .12s; }
+.panel-min svg { width: 18px; height: 18px; }
+.panel-fab {
+  position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; padding: 0 18px;
+  border-radius: inherit; color: var(--label); opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .2s var(--ease-out), visibility 0s .2s, transform .45s var(--spring);
+}
+.panel.mini .panel-fab { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .35s var(--ease-out) .3s, visibility 0s, transform .45s var(--spring); }
+.panel-fab:active { transform: scale(.95); transition-duration: .12s; }
+.fab-in { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.fab-in svg { width: 18px; height: 18px; color: var(--label-2); }
+.fab-in .ti { font-size: 14px; font-weight: 500; }
 .panel::-webkit-scrollbar { display: none; }
 .panel > .trio .tc:first-child { padding-left: 0; }
+.panel > .trio { padding-right: 32px; }   /* clear of the collapse button */
 /* cards, chips and lists share one edge; a chip group's heading lines up with its chips, a list's with the row text */
 .group:has(> .chips) > h2 { margin-left: 0; }
 .handle { display: none; }
@@ -759,10 +789,24 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
     left: 0; right: 0; top: auto; bottom: 0; width: auto; height: min(80vh, 700px);
     border-radius: var(--r-xl) var(--r-xl) 0 0; padding: 8px 20px calc(16px + env(safe-area-inset-bottom));
     transform: translateY(calc(100% - 176px));
-    transition: opacity .7s var(--ease-out), transform .8s var(--spring), filter .7s var(--ease-out);
   }
   body[data-view="dash"] .dash .panel.enter { transform: translateY(calc(100% - 176px)); }
   body[data-view="dash"] .dash .panel.enter.expanded { transform: none; }
+  /* the capsule: centred at the bottom, the sheet's box shrinks into it */
+  body[data-view="dash"] .dash .panel.enter.mini {
+    left: calc(50% - var(--mini-w, 220px) / 2); right: calc(50% - var(--mini-w, 220px) / 2); width: auto;
+    bottom: calc(16px + env(safe-area-inset-bottom)); height: 52px; border-radius: 26px; transform: none;
+  }
+  .panel.dragging, .detail.dragging { transition: none !important; }
+  .panel-min { display: none; }   /* phones collapse by swiping the sheet down */
+  .panel > .trio { padding-right: 0; }
+  /* sheet moves and the shrink into the capsule share one curve, so the box never dips off-screen */
+  .dash .panel.enter {
+    transition: opacity .7s var(--ease-out), transform .6s var(--morph), filter .7s var(--ease-out),
+      width .6s var(--morph), height .6s var(--morph), border-radius .6s var(--morph),
+      padding .4s var(--ease-out), left .6s var(--morph), right .6s var(--morph), bottom .6s var(--morph);
+  }
+  .handle { touch-action: none; }
   .panel:not(.expanded) { overflow: hidden; }
   .handle { display: grid; place-items: center; width: 100%; height: 24px; margin-bottom: 4px; }
   .handle i { width: 36px; height: 5px; border-radius: 3px; background: var(--fill); }
