@@ -601,16 +601,26 @@ function placeLabels() {
     o.m.el.classList.toggle('nolabel', !ok);
     if (ok) placed.push(box);
   });
-  // With the WebGL Liquid Glass the panels are drawn inside the map canvas, beneath these HTML
-  // markers, so a marker sliding under a panel would show through it — fade it out instead.
+  // With the WebGL Liquid Glass every glass surface (panels, detail card, tooltip, toolbars) is drawn
+  // inside the map canvas, beneath these HTML markers, so a marker under one would show through it —
+  // fade it out instead. Only surfaces actually on screen count (a closed detail card is just faded).
   const panes = document.documentElement.classList.contains('gl-live')
-    ? [...document.querySelectorAll('.dash .gl-glass')].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 2)
+    ? [...document.querySelectorAll('.gl-glass')].filter(onScreen).map((el) => el.getBoundingClientRect())
     : [];
   const cr = map.getCanvas().getBoundingClientRect();
   for (const o of list) {
+    if (o.m === tipFor) { o.m.el.classList.remove('under'); continue; }   // the hovered marker stays
     const x = o.x + cr.left, y = o.y + cr.top;
-    o.m.el.classList.toggle('under', panes.some((r) => x > r.left - o.w / 2 && x < r.right + o.w / 2 && y > r.top - o.s / 2 && y < r.bottom + o.s / 2));
+    const below = o.m.el.classList.contains('nolabel') ? o.s / 2 : o.s / 2 + 34;   // the caption hangs below
+    o.m.el.classList.toggle('under', panes.some((r) => x > r.left - o.w / 2 && x < r.right + o.w / 2 && y > r.top - o.s / 2 && y < r.bottom + below));
   }
+}
+function onScreen(el) {
+  if (el.closest('.landing') || el.closest('[hidden]')) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return false;
+  if (el.checkVisibility) return el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && +getComputedStyle(el).opacity > .05;
+  return +getComputedStyle(el).opacity > .05;
 }
 function retireMarker(m) {
   m.el.classList.add('out');
@@ -680,7 +690,7 @@ const placeNames = (spots) => {
 
 /* hover & click */
 const tip = $('#tip');
-let tipToken = 0;
+let tipToken = 0, tipFor = null;
 /* Operator: the CSV's External IP looked up on ipinfo.io, whose "org" reads "AS9269 Hong Kong
    Broadband Network Ltd." (the AS number is dropped for display). Answers are cached in this browser.
    Rows without an External IP (older exports, the demo) fall back to the test server's name. */
@@ -746,6 +756,8 @@ async function showMarkerTip(m) {
     tip.hidden = false;
     const pt = map.project(m.coords), r = m.el.getBoundingClientRect();
     placeTip({ x: r.right - 6, y: pt.y - r.height + 8 });
+    tipFor = m; placeLabels();   // markers under the bubble fade out
+    setTimeout(() => { if (tipFor === m && map) placeLabels(); }, 380);   // again at full size, after tipIn
   };
   if (!p.cluster) {
     const s = S.spotByKey.get(p.k);
@@ -762,10 +774,10 @@ function placeTip(pt) {
   const w = tip.offsetWidth, h = tip.offsetHeight;
   let x = pt.x + 8, y = pt.y - h;
   if (x + w > innerWidth - 12) x = pt.x - w - 60;
-  if (y < 12) y = 12;
+  if (y < 84) y = 84;   // stay below the top bar
   tip.style.left = x + 'px'; tip.style.top = y + 'px';
 }
-function hideTip() { tipToken++; tip.hidden = true; }
+function hideTip() { tipToken++; tip.hidden = true; if (tipFor) { tipFor = null; if (map) placeLabels(); } }
 
 /* Like tapping a pile in Photos: open everything inside it, and zoom until it splits apart. */
 async function onMarkerClick(m) {
@@ -818,11 +830,16 @@ function fit(list, opts = {}) {
   const bw = Math.max(80, innerWidth - p.left - p.right), bh = Math.max(80, innerHeight - p.top - p.bottom);
   const maxZoom = opts.maxZoom ?? 12.5;
   let zoom = Math.log2(Math.min(bw / Math.max(1e-9, (x1 - x0) * 512), bh / Math.max(1e-9, (y1 - y0) * 512)));
-  zoom = Math.max(0.8, Math.min(maxZoom, zoom));
+  // Data that spans the world would zoom the globe out to a small ball; never go below the zoom at
+  // which the globe fills the free area (globe radius ≈ 81.5 px × 2^zoom, see landingZoom).
+  const globeFill = Math.log2((Math.min(isCompact() ? innerWidth - 32 : bw, bh) * 0.5) / 81.5);
+  zoom = Math.max(globeFill, Math.min(maxZoom, zoom));
   const center = [((x0 + x1) / 2) * 360 - 180, unMercY((y0 + y1) / 2)];
-  map.flyTo({
+  // opts.linear: constant-pace easeTo (playback) instead of flyTo's zoom-out arc and easing
+  map[opts.linear ? 'easeTo' : 'flyTo']({
     center, zoom, padding: camPadding(), pitch: opts.pitch ?? 0, bearing: 0,
-    duration: reduceMotion ? 0 : opts.duration ?? 1800, easing: opts.easing ?? easeInOutQuint, essential: true,
+    duration: reduceMotion ? 0 : opts.duration ?? 1800,
+    easing: opts.linear ? (t) => t : opts.easing ?? easeInOutQuint, essential: true,
   });
 }
 /* Densest neighbourhood: the city with most tests, plus anything within ~250 km of it. */
@@ -917,7 +934,7 @@ function setRoute(upto) {
   const src = map && map.getSource('route');
   if (src) src.setData(S.routeData);
 }
-function animateRoute(to, dur = 1600) {
+function animateRoute(to, dur = 1600, ease = easeInOutQuint) {
   cancelAnimationFrame(routeAnim);
   const from = S.routeUpto || 0;
   if (reduceMotion || dur <= 0) return Promise.resolve(setRoute(to));
@@ -925,7 +942,7 @@ function animateRoute(to, dur = 1600) {
     const t0 = performance.now();
     const step = (now) => {
       const t = Math.min(1, (now - t0) / dur);
-      setRoute(from + (to - from) * easeInOutQuint(t));
+      setRoute(from + (to - from) * ease(t));
       if (t < 1) routeAnim = requestAnimationFrame(step); else res();
     };
     routeAnim = requestAnimationFrame(step);
@@ -1072,6 +1089,7 @@ function openDetail(group) {
   renderDetail(group);
   $('#detail').classList.add('show');
   pulse(group.center || null);
+  setTimeout(() => map && placeLabels(), 450);
 }
 function selectMarker(id) {
   S.selMarker = id;
@@ -1083,6 +1101,7 @@ function closeDetail() {
   S.sel = null;
   $('#detail').classList.remove('show');
   pulse(null);
+  setTimeout(() => map && placeLabels(), 450);
 }
 function renderDetail(group) {
   const live = new Set(S.tests);
@@ -1280,9 +1299,11 @@ async function startPlay() {
   const lastIdx = [];
   S.route.forEach((p, i) => { lastIdx[p.seg] = i; });
   cancelAnimationFrame(routeAnim); setRoute(0);
-  const base = Math.max(900, Math.min(2000, 32000 / segs.length));
+  // Slow and even: each stay gets 2.4–4.5 s at 1×, and the camera and the route move at a constant pace.
+  const base = Math.max(2400, Math.min(4500, 90000 / segs.length));
   const chip = $('#playChip');
   chip.classList.add('show');
+  setTimeout(() => map && placeLabels(), 400);   // once the chip is in, fade markers under it
   for (let i = 0; i < segs.length; i++) {
     if (token !== playToken) return;
     const dwell = base / (S.playSpeed || 1);
@@ -1293,11 +1314,11 @@ async function startPlay() {
     chip.classList.remove('tick'); void chip.offsetWidth; chip.classList.add('tick');
     markStay(i);
     const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null;
-    const travel = prev && km(prev, g.tests[0]) > 300 ? dwell * 1.5 : dwell * .8;
-    fit(g.tests, { maxZoom: 12, duration: travel });
-    await animateRoute(lastIdx[i] ?? S.routeUpto, travel * .9);
+    const travel = prev && km(prev, g.tests[0]) > 300 ? dwell * .75 : dwell * .5;
+    fit(g.tests, { maxZoom: 12, duration: travel, linear: true });
+    await animateRoute(lastIdx[i] ?? S.routeUpto, travel, (t) => t);
     if (token !== playToken) return;
-    await sleep(dwell * .55);
+    await sleep(dwell - travel);
   }
   if (token !== playToken) return;
   stopPlay();
