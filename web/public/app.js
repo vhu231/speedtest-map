@@ -319,9 +319,10 @@ function initMap() {
       renderWorldCopies: false, maxPitch: 70, fadeDuration: 250,
       // 3× phone screens cost 2.25× the pixels of 2× for no visible gain under the glass; labels are HTML
       pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
-      // the default keeps ~60 tiles, so a tour that returns to a city (Shenzhen → Hong Kong → Shenzhen)
-      // had evicted it and re-parsed it with a visible reload; keep more, fewer on phones (memory)
-      maxTileCacheSize: innerWidth <= 860 ? 120 : 240,
+      // desktop keeps twice the default so a tour returning to a city does not re-parse it; phones keep
+      // MapLibre's own sizing — cached tiles hold GPU buffers, and iOS answers memory pressure by
+      // dropping the WebGL context, which blanks the map and reloads every tile (the "black" + "reload")
+      ...(innerWidth > 860 ? { maxTileCacheSize: 120 } : {}),
       dragRotate: true, pitchWithRotate: true,
     });
   } catch (e) { console.warn(e); body.classList.add('map-ready'); return; }
@@ -401,6 +402,7 @@ function addEarth() {
       'raster-brightness-max': dark ? .9 : 1, 'raster-saturation': .1, 'raster-contrast': .08, 'raster-fade-duration': 300,
     },
   }, firstSymbol);
+  addEarthBase();
   // country borders stay visible on top of the imagery
   for (const l of layers) if (l['source-layer'] === 'boundary' && l.type === 'line') { try { map.moveLayer(l.id, firstSymbol); } catch {} }
   map.addSource('graticule', { type: 'geojson', data: graticule() });
@@ -413,6 +415,50 @@ function addEarth() {
     id: 'graticule-dash', type: 'line', source: 'graticule', filter: ['!=', ['get', 'kind'], 'equator'],
     paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': fade, 'line-dasharray': [2, 3] },
   }, firstSymbol);
+}
+
+/* A whole-world fallback under the imagery. When the camera flies somewhere new (playback hops, a
+   click far away), the imagery tiles for that view are not loaded yet and the dark map background
+   showed through — the map "went black" for a moment, and each tile then faded in from black. This
+   stitches one low-resolution world image (the same NASA mosaic at zoom 3, 2048 px; zoom 2 on phones)
+   once and lays it directly beneath the imagery with the same opacity ramp, so anything still loading
+   shows the blurry earth instead of black, and new tiles sharpen over it. */
+let earthBaseURL = null, earthBaseJob = null;
+function buildEarthBase() {
+  if (earthBaseJob) return earthBaseJob;
+  const z = innerWidth <= 860 ? 2 : 3, n = 2 ** z, cv = document.createElement('canvas');
+  cv.width = cv.height = 256 * n;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#0b1e3a'; g.fillRect(0, 0, cv.width, cv.height);   // ocean-ish, should a tile fail
+  const tile = (x, y) => new Promise((res) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { g.drawImage(img, x * 256, y * 256); res(); };
+    img.onerror = () => res();
+    img.src = GIBS.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+  });
+  const jobs = [];
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) jobs.push(tile(x, y));
+  earthBaseJob = Promise.all(jobs)
+    .then(() => new Promise((res) => cv.toBlob(res, 'image/jpeg', .86)))
+    .then((blob) => (earthBaseURL = blob ? URL.createObjectURL(blob) : null))
+    .catch(() => null);
+  return earthBaseJob;
+}
+async function addEarthBase() {
+  const url = earthBaseURL || await buildEarthBase();
+  if (!url || !map || !map.getLayer('earth') || map.getSource('earth-base')) return;
+  const Y = 85.051129;   // the Web Mercator square
+  try {
+    map.addSource('earth-base', { type: 'image', url, coordinates: [[-180, Y], [180, Y], [180, -Y], [-180, -Y]] });
+    map.addLayer({
+      id: 'earth-base', type: 'raster', source: 'earth-base',
+      paint: {
+        'raster-opacity': ['interpolate', ['linear'], ['zoom'], 0, 1, 4.5, 1, 6.5, 0],
+        'raster-brightness-max': darkQ.matches ? .9 : 1, 'raster-saturation': .1, 'raster-contrast': .08, 'raster-fade-duration': 0,
+      },
+    }, 'earth');
+  } catch (e) { console.warn('earth base', e); }
 }
 
 /* Starfield behind the globe. The stars are painted once into two tiles (steady + twinkling) and then only
@@ -981,7 +1027,7 @@ function fit(list, opts = {}) {
    when MapLibre asks for them they come from cache and the map is already drawn when the camera
    lands. Uses the same URLs MapLibre would (same template, same subdomain pick). Skipped on
    data-saver connections. */
-const prefetched = new Set(), prefetchQueue = [];
+const prefetched = new Map(), prefetchQueue = [];   // url -> promise settled once it is in the cache
 let prefetchActive = 0;
 function tileSources() {
   const out = [], style = map && map.getStyle && map.getStyle();
@@ -995,7 +1041,8 @@ function tileSources() {
   return out;
 }
 function prefetchTiles(center, zoom, fitInfo) {
-  if (!map || navigator.connection?.saveData) return;
+  if (!map || navigator.connection?.saveData) return Promise.resolve();
+  const waits = [];
   const f = fitInfo || fitTarget([{ lon: center[0], lat: center[1] }], { maxZoom: zoom });
   const p = f.p, W = innerWidth, H = innerHeight + EXTRA();
   // the padded area's centre is `center`; the canvas reaches this far around it, plus a margin
@@ -1012,37 +1059,63 @@ function prefetchTiles(center, zoom, fitInfo) {
       if (--budget < 0) break;
       const xx = ((x % n) + n) % n, yy = s.scheme === 'tms' ? n - 1 - y : y;
       const url = s.tiles[(xx + yy) % s.tiles.length].replace('{z}', z).replace('{x}', xx).replace('{y}', yy).replace('{r}', '');
-      if (prefetched.has(url)) continue;
-      prefetched.add(url); prefetchQueue.push(url);
+      if (!prefetched.has(url)) {
+        let done; const pr = new Promise((r) => { done = r; });
+        prefetched.set(url, pr); prefetchQueue.push({ url, done });
+      }
+      waits.push(prefetched.get(url));
     }
   }
   pumpPrefetch();
+  return Promise.all(waits);
 }
 function pumpPrefetch() {
   while (prefetchActive < 6 && prefetchQueue.length) {
-    const url = prefetchQueue.shift();
+    const { url, done } = prefetchQueue.shift();
     prefetchActive++;
     fetch(url, { credentials: 'same-origin', priority: 'low' }).then((r) => r.arrayBuffer()).catch(() => prefetched.delete(url))
-      .finally(() => { prefetchActive--; pumpPrefetch(); });
+      .finally(() => { prefetchActive--; done(); pumpPrefetch(); });
   }
 }
 /* Once the timeline settles, quietly fetch the first stays so pressing play starts on a drawn map. */
 let warmT = 0;
 function warmPlayback() { clearTimeout(warmT); warmT = setTimeout(() => { if (S.tab === 'timeline' && !S.playing) prefetchStays(0, 4); }, 2200); }
 /* The next few stays of the timeline, in playback order. */
-const farHop = (a, b) => !!a && km(a, b) > 150;
 // Playback stays on the globe: around zoom 12 MapLibre swaps to flat-map shaders, and the first frame
 // past that compiles a new program for every layer (sky, background, lines, circles) — a stall of up
 // to a few hundred ms on phones, right in the middle of the animation.
 const PLAY_ZOOM = 11;
-function prefetchStays(from = 0, count = 3) {
+/* Everything a hop to stay i will show: the top of its arc (a view holding both ends), every zoom
+   level on the way down (each is on screen for a few hundred ms; without them the descent showed
+   black until they loaded) and the stay itself. Resolves once those tiles are in the cache. */
+const stayReady = new Map();
+function prefetchStay(i) {
   const segs = S.segs || [];
-  for (let i = from; i < Math.min(segs.length, from + count); i++) {
-    const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null, first = segs[i].tests[0];
-    if (farHop(prev, first)) { const m = fitTarget([prev, first]); prefetchTiles(m.center, m.zoom, m); }   // the top of the arc
-    const f = fitTarget(segs[i].tests, { maxZoom: PLAY_ZOOM });
-    prefetchTiles(f.center, f.zoom, f);
+  if (!segs[i]) return Promise.resolve();
+  if (stayReady.has(segs[i])) return stayReady.get(segs[i]);
+  const f = fitTarget(segs[i].tests, { maxZoom: PLAY_ZOOM }), jobs = [prefetchTiles(f.center, f.zoom, f)];
+  if (i) {
+    // the flight climbs out of the previous stay to a view holding both ends, then descends; at zoom z
+    // its centre is roughly 2^(top − z) of the way from the near end to the middle (flyTo keeps the
+    // on-screen speed even), so fetch those views on the way up and on the way down
+    const o = fitTarget(segs[i - 1].tests, { maxZoom: PLAY_ZOOM });
+    const m = fitTarget([segs[i - 1].tests[segs[i - 1].tests.length - 1], segs[i].tests[0]]);
+    const top = Math.min(m.zoom, o.zoom, f.zoom);
+    jobs.push(prefetchTiles(m.center, m.zoom, m));
+    const along = (a, k) => [a.center[0] + (m.center[0] - a.center[0]) * k,
+      unMercY(mercY(a.center[1]) + (mercY(m.center[1]) - mercY(a.center[1])) * k)];
+    for (let z = Math.floor(top) + 1; z < PLAY_ZOOM + 1; z++) {
+      const k = Math.min(1, 2 ** (top - z));
+      if (z < f.zoom) jobs.push(prefetchTiles(along(f, k), z, f));
+      if (z < o.zoom) jobs.push(prefetchTiles(along(o, k), z, o));
+    }
   }
+  const ready = Promise.all(jobs);
+  stayReady.set(segs[i], ready);
+  return ready;
+}
+function prefetchStays(from = 0, count = 3) {
+  for (let i = from; i < Math.min((S.segs || []).length, from + count); i++) prefetchStay(i);
 }
 
 /* Densest neighbourhood: the city with most tests, plus anything within ~250 km of it. */
@@ -1546,6 +1619,10 @@ async function startPlay() {
     if (token !== playToken) return;
     const dwell = base / (S.playSpeed || 1);
     const g = segs[i];
+    // fly only once the hop's tiles are cached (or after 1.5 s on a slow network): a short pause on a
+    // drawn map instead of a flight into black
+    await Promise.race([prefetchStay(i), sleep(1500)]);
+    if (token !== playToken) return;
     $('#pcDate').textContent = fmtDate(g.from) + (dayStart(g.to) > dayStart(g.from) ? ` – ${fmtMD(g.to)}` : '');
     S.playSeg = i;
     $('#pcCity').textContent = cityName(g.city);
@@ -1554,7 +1631,7 @@ async function startPlay() {
     prefetchStays(i + 1, 3);
     const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null;
     const travel = prev && km(prev, g.tests[0]) > 300 ? dwell * .75 : dwell * .5;
-    fit(g.tests, { maxZoom: PLAY_ZOOM, duration: travel, linear: true, arc: farHop(prev, g.tests[0]) });
+    fit(g.tests, { maxZoom: PLAY_ZOOM, duration: travel, linear: true, arc: !!prev });
     await animateRoute(lastIdx[i] ?? S.routeUpto, travel, (t) => t);
     if (token !== playToken) return;
     await sleep(dwell - travel);
