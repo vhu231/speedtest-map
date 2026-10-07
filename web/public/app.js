@@ -280,9 +280,26 @@ const STYLES = {
 };
 let map = null, dotScale = 0;
 
-// The map canvas is taller than the viewport (see #map in styles.css); EXTRA is the hidden part below the fold.
-// Keeping one canvas lets every view change be a single animated camera move instead of a resize.
-const EXTRA = () => Math.round(innerHeight * 0.6);
+// On the landing page the map canvas is taller than the viewport (see #map in styles.css) so the globe can
+// rise from below the fold; EXTRA is that hidden part. Once the dashboard's entry flight has landed the
+// canvas shrinks to the viewport (body.map-fit) — the hidden 60 % was drawn, glassed and kept in memory
+// every frame for nothing — and grows back just before returning to the landing page. The padding is
+// swapped in the same frame, so the picture does not move.
+let mapFit = false;
+const EXTRA = () => (mapFit ? 0 : Math.round(innerHeight * 0.6));
+function fitCanvas(on) {
+  if (!map || on === mapFit) return;
+  // the globe's perspective depends on canvas height, so the resize alone nudges the picture a few px;
+  // pin the middle of the free area: note what is under it, resize, then pan that point back
+  const p = uiPadding(), sx = (p.left + innerWidth - p.right) / 2, sy = (p.top + innerHeight - p.bottom) / 2;
+  const pinned = map.unproject([sx, sy]);
+  mapFit = on;
+  document.body.classList.toggle('map-fit', on);
+  map.resize();
+  map.setPadding(S.view === 'dash' ? camPadding() : landingPadding());
+  const now = map.project(pinned);
+  if (Math.abs(now.x - sx) + Math.abs(now.y - sy) > .5) map.panBy([now.x - sx, now.y - sy], { duration: 0 });
+}
 // Landing: a large globe whose centre sits below the fold, so only its upper arc rises into view.
 const landingRadius = () => Math.max(innerHeight * 0.69, Math.min(innerWidth * 0.46, innerHeight * 0.95));
 const landingZoom = () => Math.log2(landingRadius() / 81.5);
@@ -302,6 +319,9 @@ function initMap() {
       renderWorldCopies: false, maxPitch: 70, fadeDuration: 250,
       // 3× phone screens cost 2.25× the pixels of 2× for no visible gain under the glass; labels are HTML
       pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      // the default keeps ~60 tiles, so a tour that returns to a city (Shenzhen → Hong Kong → Shenzhen)
+      // had evicted it and re-parsed it with a visible reload; keep more, fewer on phones (memory)
+      maxTileCacheSize: innerWidth <= 860 ? 120 : 240,
       dragRotate: true, pitchWithRotate: true,
     });
   } catch (e) { console.warn(e); body.classList.add('map-ready'); return; }
@@ -483,6 +503,8 @@ function addDataLayers() {
   });
   map.addSource('sel', { type: 'geojson', data: EMPTY });
   map.addSource('route', { type: 'geojson', data: S.routeData || EMPTY });
+  map.addSource('route-head', { type: 'geojson', data: EMPTY, lineMetrics: true });
+  routeK = -1; routeHeadJ = -1;
   const dark = darkQ.matches;
   // Timeline route: local movement as a solid glowing line, long hops as dashed great-circle arcs.
   map.addLayer({
@@ -501,6 +523,11 @@ function addDataLayers() {
     paint: { 'line-color': dark ? '#ffffff' : '#1d1d1f', 'line-opacity': .55, 'line-width': 1.8, 'line-dasharray': [0.5, 2.5] },
   });
   map.addLayer({
+    id: 'route-head', type: 'line', source: 'route-head',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-width': 2.2, 'line-gradient': ['step', ['line-progress'], 'rgba(0,0,0,0)', 0, 'rgba(0,0,0,0)'] },
+  });
+  map.addLayer({
     id: 'glow', type: 'circle', source: 'spots',
     paint: {
       'circle-radius': glowRadius(dotScale), 'circle-color': '#000000', 'circle-blur': 1,
@@ -511,6 +538,7 @@ function addDataLayers() {
     id: 'ring', type: 'circle', source: 'sel',
     paint: { 'circle-radius': 20, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 2.5, 'circle-stroke-color': dark ? '#fff' : '#1d1d1f', 'circle-stroke-opacity': 0 },
   });
+  setRoute(S.routeUpto || 0);
   scheduleMarkers();
 }
 
@@ -1003,12 +1031,16 @@ let warmT = 0;
 function warmPlayback() { clearTimeout(warmT); warmT = setTimeout(() => { if (S.tab === 'timeline' && !S.playing) prefetchStays(0, 4); }, 2200); }
 /* The next few stays of the timeline, in playback order. */
 const farHop = (a, b) => !!a && km(a, b) > 150;
+// Playback stays on the globe: around zoom 12 MapLibre swaps to flat-map shaders, and the first frame
+// past that compiles a new program for every layer (sky, background, lines, circles) — a stall of up
+// to a few hundred ms on phones, right in the middle of the animation.
+const PLAY_ZOOM = 11;
 function prefetchStays(from = 0, count = 3) {
   const segs = S.segs || [];
   for (let i = from; i < Math.min(segs.length, from + count); i++) {
     const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null, first = segs[i].tests[0];
     if (farHop(prev, first)) { const m = fitTarget([prev, first]); prefetchTiles(m.center, m.zoom, m); }   // the top of the arc
-    const f = fitTarget(segs[i].tests, { maxZoom: 12 });
+    const f = fitTarget(segs[i].tests, { maxZoom: PLAY_ZOOM });
     prefetchTiles(f.center, f.zoom, f);
   }
 }
@@ -1077,33 +1109,55 @@ function arc(a, b, n = 64) {
   return out;
 }
 /* Route drawn up to a fractional point index — lets the line grow smoothly. */
-function routeGeo(pts, upto) {
+/* The route is built once per time window: one feature per step j (pts[j-1] → pts[j]), long hops as
+   great-circle arcs. Playback never re-uploads it. Finished steps show through a paint expression on
+   `j` that changes once per step; the step being drawn lives in the tiny 'route-head' source and grows
+   by moving a line-gradient stop, so a frame of route animation is one paint-property change instead
+   of a GeoJSON re-tile in the worker (which made the line flicker and the map stutter). */
+function routeGeo(pts) {
   const feats = [];
-  if (pts.length < 2 || upto <= 0) return { type: 'FeatureCollection', features: feats };
-  let run = [[pts[0].lon, pts[0].lat]];
-  const flush = () => { if (run.length > 1) feats.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: run } }); };
-  const end = Math.min(upto, pts.length - 1);
-  for (let j = 1; j <= Math.ceil(end); j++) {
-    const a = pts[j - 1], b = pts[j], f = Math.min(1, end - (j - 1));
-    if (b.jump) {
-      flush();
-      const full = arc(a, b);
-      const part = full.slice(0, Math.max(2, Math.round((full.length - 1) * f) + 1));
-      feats.push({ type: 'Feature', properties: { jump: true }, geometry: { type: 'LineString', coordinates: part } });
-      run = [part[part.length - 1]];
-    } else {
-      run.push(f < 1 ? [a.lon + (b.lon - a.lon) * f, a.lat + (b.lat - a.lat) * f] : [b.lon, b.lat]);
-    }
+  for (let j = 1; j < pts.length; j++) {
+    const a = pts[j - 1], b = pts[j];
+    feats.push({ type: 'Feature', properties: { j, jump: !!b.jump },
+      geometry: { type: 'LineString', coordinates: b.jump ? arc(a, b) : [[a.lon, a.lat], [b.lon, b.lat]] } });
   }
-  flush();
   return { type: 'FeatureCollection', features: feats };
 }
-let routeAnim = 0;
-function setRoute(upto) {
-  S.routeUpto = upto;
-  S.routeData = routeGeo(S.route || [], upto);
+let routeAnim = 0, routeK = -1, routeHeadJ = -1;
+const ROUTE_LAYERS = ['route-glow', 'route', 'route-jump'];
+function routeColor() { return darkQ.matches ? '#ffffff' : '#1d1d1f'; }
+/* Called when S.route changes (new window/filters): upload the full geometry once. */
+function loadRoute() {
+  S.routeData = routeGeo(S.route || []);
+  routeK = -1; routeHeadJ = -1;
   const src = map && map.getSource('route');
   if (src) src.setData(S.routeData);
+}
+function setRoute(upto) {
+  S.routeUpto = upto;
+  if (!map || !map.getLayer('route')) return;
+  const n = (S.route || []).length;
+  const k = Math.max(0, Math.min(n - 1, Math.floor(upto + 1e-6)));   // steps 1..k are complete
+  if (k !== routeK) {
+    routeK = k;
+    const shown = ['<=', ['get', 'j'], k];
+    map.setPaintProperty('route-glow', 'line-opacity', ['case', shown, darkQ.matches ? .14 : .08, 0]);
+    map.setPaintProperty('route', 'line-opacity', ['case', shown, .9, 0]);
+    map.setPaintProperty('route-jump', 'line-opacity', ['case', shown, .55, 0]);
+  }
+  // the step in progress: j = k + 1, drawn up to `frac` of its length
+  const j = k + 1, frac = upto - k;
+  const head = map.getSource('route-head');
+  if (!head) return;
+  if (j >= n || frac <= 0.001) { if (routeHeadJ !== -1) { routeHeadJ = -1; head.setData(EMPTY); } return; }
+  if (j !== routeHeadJ) {
+    routeHeadJ = j;
+    const f = S.routeData && S.routeData.features[j - 1];
+    head.setData(f ? { type: 'FeatureCollection', features: [f] } : EMPTY);
+  }
+  const c = routeColor(), jump = S.route[j] && S.route[j].jump;
+  map.setPaintProperty('route-head', 'line-gradient',
+    ['step', ['line-progress'], jump ? (darkQ.matches ? 'rgba(255,255,255,.55)' : 'rgba(29,29,31,.55)') : c, Math.min(.999, frac), 'rgba(0,0,0,0)']);
 }
 function animateRoute(to, dur = 1600, ease = easeInOutQuint) {
   cancelAnimationFrame(routeAnim);
@@ -1119,7 +1173,7 @@ function animateRoute(to, dur = 1600, ease = easeInOutQuint) {
     routeAnim = requestAnimationFrame(step);
   });
 }
-function clearRoute() { cancelAnimationFrame(routeAnim); S.route = []; setRoute(0); }
+function clearRoute() { cancelAnimationFrame(routeAnim); S.route = []; loadRoute(); setRoute(0); }
 
 /* ════════════════════════════════════════════════════════════
    Dashboard rendering
@@ -1142,6 +1196,7 @@ function refilter(opts = {}) {
   pushData();
   if (S.tab === 'timeline') {
     S.route = routePoints(stays(S.tests));
+    loadRoute();
     if (opts.animateRoute) { setRoute(0); animateRoute(S.route.length - 1, 1800); }
     else setRoute(S.route.length - 1);
   }
@@ -1499,7 +1554,7 @@ async function startPlay() {
     prefetchStays(i + 1, 3);
     const prev = i ? segs[i - 1].tests[segs[i - 1].tests.length - 1] : null;
     const travel = prev && km(prev, g.tests[0]) > 300 ? dwell * .75 : dwell * .5;
-    fit(g.tests, { maxZoom: 12, duration: travel, linear: true, arc: farHop(prev, g.tests[0]) });
+    fit(g.tests, { maxZoom: PLAY_ZOOM, duration: travel, linear: true, arc: farHop(prev, g.tests[0]) });
     await animateRoute(lastIdx[i] ?? S.routeUpto, travel, (t) => t);
     if (token !== playToken) return;
     await sleep(dwell - travel);
@@ -1550,6 +1605,7 @@ function enterDash(ds, opts) {
     map.stop();
     const target = homeSpots();
     fit(target, { duration: 3400, maxZoom: 11, pitch: 0 });
+    map.once('moveend', () => { if (S.view === 'dash') fitCanvas(true); });
     animateDots(1, reduceMotion ? 0 : 1300, 1200);
   }
 }
@@ -1574,6 +1630,7 @@ function exitDash() {
   renderHead();
   resetLanding();
   if (map) {
+    fitCanvas(false);
     animateDots(0, 0, 500);
     const c = map.getCenter();
     map.flyTo({ center: [c.lng, 20], zoom: landingZoom(), pitch: 0, bearing: 0, padding: landingPadding(), duration: reduceMotion ? 0 : 2600, easing: easeInOutQuint, essential: true });

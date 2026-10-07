@@ -294,10 +294,12 @@ body[data-view="dash"] .aurora .halo { opacity: 0; }
   transition: opacity 1.6s var(--ease-out), transform 2.2s var(--ease-out);
 }
 body.map-ready #map { opacity: 1; transform: none; }
+body.map-fit #map { height: 100vh; height: 100dvh; }   /* dashboard: no hidden canvas below the fold */
 .veil { position: fixed; inset: 0; z-index: 2; pointer-events: none; background: var(--veil); transition: opacity 1.2s var(--ease-out); }
 body[data-view="dash"] .veil { opacity: 0; }
 
 .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: 60vh; }
+body.map-fit .maplibregl-ctrl-bottom-right, body.map-fit .maplibregl-ctrl-bottom-left { bottom: 0; }
 .maplibregl-ctrl-attrib { background: var(--fill-3) !important; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 8px !important; font-size: 10px; }
 .maplibregl-ctrl-attrib a { color: var(--label-3) !important; }
 .maplibregl-ctrl-attrib-button { filter: invert(var(--inv, 1)); }
@@ -824,6 +826,7 @@ body:not([data-view="dash"]) .pm { pointer-events: none; }
   body:has(.detail.show) .dash .panel { transform: translateY(100%) !important; opacity: 0; pointer-events: none; }
   /* keep the map credit above the collapsed sheet (the sheet's glass is drawn under the HTML) */
   body[data-view="dash"] .maplibregl-ctrl-bottom-right { bottom: calc(60vh + 184px); }
+  body.map-fit[data-view="dash"] .maplibregl-ctrl-bottom-right { bottom: 184px; }
   body:has(.panel.expanded, .detail.show) .maplibregl-ctrl-bottom-right { opacity: 0; pointer-events: none; }
   .sheet-body { padding: 24px 20px 20px; }
 }
